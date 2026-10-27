@@ -11,14 +11,15 @@ import {
   X,
   Pencil,
   GripVertical,
+  Sheet,
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
 import LeftPanel from "./components/LeftPanel";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
-import { dateWindow } from "./data";
-import { currentPage, emptyReport, reducer, type UIState } from "./store";
+import { dateWindow, orderTrackerSource, sampleDataSource } from "./data";
+import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
 import type { Chart, DataSource, Report } from "./types";
 
 const STORAGE_KEY = "studiokit.report.v1";
@@ -130,6 +131,13 @@ export default function App() {
         values: Array.from(new Set(source.rows.map((r) => String(r[f.name] ?? "")))).sort().slice(0, 200),
       }));
   }, [source]);
+
+  const loadTemplate = (kind: "marketing" | "order") => {
+    const src = kind === "order" ? orderTrackerSource() : sampleDataSource();
+    const templateReport = kind === "order" ? orderReport(src) : emptyReport(src);
+    dispatch({ type: "setSource", source: src, report: templateReport });
+    dispatch({ type: "ui", patch: { showData: false } });
+  };
 
   const addFieldToSelected = (name: string, kind: "dimension" | "metric") => {
     if (!selected) return;
@@ -305,6 +313,9 @@ export default function App() {
                   <button className="btn ghost" onClick={() => dispatch({ type: "addChart", chartType: "timeseries" })}>
                     Time series
                   </button>
+                  <button className="btn ghost" onClick={() => loadTemplate("order")}>
+                    <Sheet size={14} /> Order tracker
+                  </button>
                 </div>
               )}
             </div>
@@ -345,6 +356,7 @@ export default function App() {
       {state.showData && !viewMode && (
         <DataModal
           onClose={() => dispatch({ type: "ui", patch: { showData: false } })}
+          onTemplate={(kind) => loadTemplate(kind)}
           onConnect={(src) => {
             const hasCharts = report.pages.some((p) => p.charts.length > 0);
             if (hasCharts) {

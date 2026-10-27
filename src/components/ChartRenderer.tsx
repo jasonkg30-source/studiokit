@@ -122,6 +122,7 @@ export default function ChartRenderer({ chart, rows }: Props) {
                   name={metricLabel(m)}
                   stroke={colors[i % colors.length]}
                   fill={colors[i % colors.length]}
+                  isAnimationActive={false}
                   fillOpacity={0.12}
                   strokeWidth={2}
                 />
@@ -144,6 +145,7 @@ export default function ChartRenderer({ chart, rows }: Props) {
                   strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4 }}
+                  isAnimationActive={false}
                 />
               ))}
             </LineChart>
@@ -183,6 +185,7 @@ export default function ChartRenderer({ chart, rows }: Props) {
                 radius={chart.type === "hbar" ? [0, 4, 4, 0] : [4, 4, 0, 0]}
                 stackId={chart.type === "stacked" ? "a" : undefined}
                 maxBarSize={48}
+                isAnimationActive={false}
               />
             ))}
           </BarChart>
@@ -191,11 +194,22 @@ export default function ChartRenderer({ chart, rows }: Props) {
     case "pie":
     case "donut": {
       const m = metrics[0];
+      const total = data.reduce((a, d) => a + Number(d[m.field] || 0), 0);
+      const legendPayload = data.map((d, i) => ({
+        id: String(d.key),
+        value: total
+          ? `${d.key} · ${Math.round((Number(d[m.field] || 0) / total) * 100)}%`
+          : String(d.key),
+        type: "circle" as const,
+        color: colors[i % colors.length],
+      }));
       return (
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Tooltip {...tooltipStyle()} formatter={(v) => formatNumber(Number(v))} />
-            {chart.showLegend && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
+            {chart.showLegend && (
+              <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} payload={legendPayload} />
+            )}
             <Pie
               data={data}
               dataKey={m.field}
@@ -205,6 +219,7 @@ export default function ChartRenderer({ chart, rows }: Props) {
               paddingAngle={1}
               stroke="#fff"
               strokeWidth={2}
+              isAnimationActive={ false }
             >
               {data.map((_, i) => (
                 <Cell key={i} fill={colors[i % colors.length]} />
@@ -224,7 +239,7 @@ export default function ChartRenderer({ chart, rows }: Props) {
             <XAxis type="number" dataKey={x} name={metricLabel(metrics[0])} {...axis} tickFormatter={(v) => formatNumber(Number(v))} />
             <YAxis type="number" dataKey={y} name={metricLabel(metrics[1] || metrics[0])} {...axis} tickFormatter={(v) => formatNumber(Number(v))} width={52} />
             <Tooltip {...tooltipStyle()} formatter={(v) => formatNumber(Number(v))} />
-            <Scatter data={data} fill={colors[0]} />
+            <Scatter data={data} fill={colors[0]} isAnimationActive={false} />
           </ScatterChart>
         </ResponsiveContainer>
       );

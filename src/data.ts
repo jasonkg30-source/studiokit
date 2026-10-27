@@ -171,6 +171,99 @@ export function sampleDataSource(): DataSource {
   };
 }
 
+/** Deterministic order-management sample that mirrors the Order Tracker sketch (ST PO#, customer PO, ETA, port). */
+export function orderTrackerSource(): DataSource {
+  let seed = 20261027;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+  const pick = <T,>(arr: T[]): T => arr[Math.floor(rand() * arr.length)];
+
+  const customers = ["Northwind Traders", "Ace Distribution", "Blue Harbor Supply", "Summit Retail Group"];
+  const regions = ["West", "East", "Central"];
+  const ports = ["LAX", "Long Beach", "Newark", "Savannah"];
+  const catalog = [
+    { sku: "AP-1001", item: "Cotton crew tee", type: "Apparel", price: 9.5 },
+    { sku: "AP-1002", item: "Fleece hoodie", type: "Apparel", price: 21.0 },
+    { sku: "AP-1007", item: "Canvas tote", type: "Apparel", price: 4.25 },
+    { sku: "HM-2011", item: "Ceramic mug set", type: "Home", price: 12.8 },
+    { sku: "HM-2014", item: "Linen throw", type: "Home", price: 24.5 },
+    { sku: "HM-2020", item: "Glass storage jar", type: "Home", price: 7.4 },
+    { sku: "EL-3005", item: "USB-C hub", type: "Electronics", price: 32.0 },
+    { sku: "EL-3009", item: "Bluetooth speaker", type: "Electronics", price: 41.5 },
+    { sku: "EL-3014", item: "Power bank 20k", type: "Electronics", price: 27.75 },
+    { sku: "OD-4002", item: "Camp chair", type: "Outdoor", price: 38.0 },
+    { sku: "OD-4006", item: "Insulated bottle", type: "Outdoor", price: 14.2 },
+    { sku: "OD-4011", item: "Trail backpack", type: "Outdoor", price: 56.0 },
+  ];
+
+  const rows: Row[] = [];
+  const today = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  let orderNo = 10240;
+
+  for (let i = 0; i < 64; i++) {
+    orderNo += 1 + Math.floor(rand() * 3);
+    const daysAgo = Math.floor(rand() * 380);
+    const orderDate = new Date(today.getTime() - daysAgo * 86400000);
+    const eta = new Date(orderDate.getTime() + (26 + Math.floor(rand() * 22)) * 86400000);
+    const customer = pick(customers);
+    const region = pick(regions);
+    const port = pick(ports);
+    const status = daysAgo > 120 ? "Closed" : rand() < 0.12 ? "Cancelled" : eta < today ? "Shipped" : "Open";
+    const stPo = `ST-PO-${orderNo}`;
+    const customerPo = `PO-${88000 + Math.floor(rand() * 9000)}`;
+    const lineCount = 1 + Math.floor(rand() * 4);
+
+    for (let l = 0; l < lineCount; l++) {
+      const product = pick(catalog);
+      const qty = Math.round((80 + rand() * 2400) / 10) * 10;
+      const amt = Math.round(qty * product.price * (0.92 + rand() * 0.16) * 100) / 100;
+      rows.push({
+        "ST PO#": stPo,
+        "Customer PO": customerPo,
+        Customer: customer,
+        Type: product.type,
+        Region: region,
+        Port: port,
+        SKU: product.sku,
+        Item: product.item,
+        Qty: qty,
+        Amt: amt,
+        "Order Date": iso(orderDate),
+        "Order Month": iso(orderDate).slice(0, 7),
+        ETA: iso(eta),
+        Status: status,
+      });
+    }
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    name: "Order tracker sample",
+    origin: "sample",
+    fields: [
+      { name: "ST PO#", type: "string" },
+      { name: "Customer PO", type: "string" },
+      { name: "Customer", type: "string" },
+      { name: "Type", type: "string" },
+      { name: "Region", type: "string" },
+      { name: "Port", type: "string" },
+      { name: "SKU", type: "string" },
+      { name: "Item", type: "string" },
+      { name: "Qty", type: "number" },
+      { name: "Amt", type: "number" },
+      { name: "Order Date", type: "date" },
+      { name: "Order Month", type: "string" },
+      { name: "ETA", type: "date" },
+      { name: "Status", type: "string" },
+    ],
+    rows,
+  };
+}
+
 export const AGG_LABEL: Record<Aggregation, string> = {
   sum: "SUM",
   avg: "AVG",

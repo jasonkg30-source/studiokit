@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { Database, FileSpreadsheet, Link2, Loader2, Sheet, Upload, X } from "lucide-react";
-import { parseCsv, parseWorkbook, sampleDataSource, type Spreadsheet } from "../data";
+import { parseCsv, parseWorkbook, type Spreadsheet } from "../data";
 import type { DataSource } from "../types";
 
 interface Props {
   onClose: () => void;
   onConnect: (source: DataSource) => void;
+  onTemplate: (kind: "marketing" | "order") => void;
 }
 
-export default function DataModal({ onClose, onConnect }: Props) {
+export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
   const [tab, setTab] = useState<"file" | "paste" | "sheets">("file");
   const [paste, setPaste] = useState("");
   const [url, setUrl] = useState("");
@@ -16,11 +17,6 @@ export default function DataModal({ onClose, onConnect }: Props) {
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [book, setBook] = useState<{ spreadsheet: Spreadsheet; fileName: string } | null>(null);
-
-  const connectSample = () => {
-    onConnect(sampleDataSource());
-    onClose();
-  };
 
   const handleFile = async (file: File) => {
     setError("");
@@ -201,11 +197,22 @@ export default function DataModal({ onClose, onConnect }: Props) {
 
         {error && <div className="error-box">{error}</div>}
 
+        {tab === "file" && (
+          <div className="template-strip">
+            <span className="template-label">Or start from a template</span>
+            <div className="template-buttons">
+              <button className="btn ghost slim" onClick={() => onTemplate("order")}>
+                <Sheet size={13} /> Order tracker
+              </button>
+              <button className="btn ghost slim" onClick={() => onTemplate("marketing")}>
+                <Database size={13} /> Marketing sample
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="modal-foot">
           <span>Excel: first row becomes the header; real date cells import as dates.</span>
-          <button className="btn ghost" onClick={connectSample}>
-            <Database size={14} /> Load sample dataset
-          </button>
         </div>
       </div>
     </div>

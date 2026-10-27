@@ -34,6 +34,11 @@ firebase deploy --only hosting --project studiokit-app
 
 The app is fully static — no Cloud Functions, no Firestore, no billing account.
 
+## Templates
+
+- **Order tracker** — the dashboard drawn in `docs/order-tracker-sketch.jpg`: KPI row (Amt, Qty TTC, SKU count, Orders), amount split by product type, an ORDER LIST table (ST PO#, Customer PO, order month, status, Amt, Qty) and a PRODUCT LIST table (SKU, item, type, Qty). Filters: Customer, Type, Region, Port, Status, plus the date range. The sample source is deterministic (64 orders / 152 lines), so screenshots stay stable.
+- **Marketing sample** — 180 days × 4 regions × 5 channels of session/order/revenue data with a starter page.
+
 ## Structure
 
 ```

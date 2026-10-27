@@ -173,6 +173,84 @@ export function emptyReport(source: DataSource | null): Report {
   };
 }
 
+/** Ready-made report for the order-management sample: KPI row, type split, order list, product list. */
+export function orderReport(source: DataSource): Report {
+  const page: ReportPage = {
+    id: crypto.randomUUID(),
+    name: "Orders",
+    charts: [
+      newChart("scorecard", {
+        title: "Amt (customer)",
+        metrics: [{ field: "Amt", agg: "sum" }],
+        width: 4,
+        height: 140,
+      }),
+      newChart("scorecard", {
+        title: "Qty (TTC)",
+        metrics: [{ field: "Qty", agg: "sum" }],
+        width: 4,
+        height: 140,
+      }),
+      newChart("scorecard", {
+        title: "SKU count",
+        metrics: [{ field: "SKU", agg: "count_distinct" }],
+        width: 4,
+        height: 140,
+      }),
+      newChart("pie", {
+        title: "Amt by type",
+        dimensions: ["Type"],
+        metrics: [{ field: "Amt", agg: "sum" }],
+        width: 4,
+        height: 380,
+        sort: "metric_desc",
+        showLegend: true,
+      }),
+      newChart("table", {
+        title: "Order list",
+        dimensions: ["ST PO#", "Customer PO", "Order Month"],
+        metrics: [
+          { field: "Amt", agg: "sum" },
+          { field: "Qty", agg: "sum" },
+        ],
+        width: 8,
+        height: 380,
+        sort: "metric_desc",
+        limit: 40,
+        showLegend: false,
+      }),
+      newChart("table", {
+        title: "Product list",
+        dimensions: ["SKU", "Item", "Type"],
+        metrics: [{ field: "Qty", agg: "sum" }],
+        width: 12,
+        height: 360,
+        sort: "metric_desc",
+        limit: 20,
+        showLegend: false,
+      }),
+    ],
+  };
+
+  return {
+    id: crypto.randomUUID(),
+    title: "Order tracker",
+    sourceId: source.id,
+    pages: [page],
+    activePageId: page.id,
+    dateField: "Order Date",
+    dateRange: "all",
+    filters: [
+      { field: "Customer", values: [] },
+      { field: "Region", values: [] },
+      { field: "Type", values: [] },
+      { field: "Order Month", values: [] },
+      { field: "Status", values: [] },
+    ],
+    theme: "light",
+  };
+}
+
 export interface UIState {
   report: Report;
   source: DataSource | null;

@@ -320,15 +320,15 @@ textarea {
 
 /* ---------- filters ---------- */
 .filterbar {
-  flex: 0 0 48px;
+  flex: 0 0 auto;
+  min-height: 48px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 18px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  padding: 6px 18px;
   border-bottom: 1px solid var(--line);
   background: #fbfcfd;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
 .filterbar::-webkit-scrollbar {
@@ -431,6 +431,19 @@ textarea {
   flex: 1;
   min-height: 0;
   padding: 0 12px 10px;
+  position: relative;
+}
+
+/* Fade the last visible table row so a scrollable table reads as "more below" instead of clipped. */
+.card-body:has(.table-wrap)::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  height: 20px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 85%);
+  pointer-events: none;
 }
 
 .muted {
@@ -1223,6 +1236,30 @@ textarea {
 }
 
 /* ---------- print ---------- */
+.template-strip {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.template-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.template-buttons {
+  display: flex;
+  gap: 6px;
+}
+
 @media print {
   .topbar,
   .left-panel,
