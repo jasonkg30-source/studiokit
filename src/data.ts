@@ -46,6 +46,80 @@ export function parseCsv(text: string, name: string, origin: DataSource["origin"
   return { id: crypto.randomUUID(), name, fields, rows, origin };
 }
 
+/** Build a data source from a sheet-like 2-D matrix: first non-empty row is treated as the header. */
+export function sourceFromMatrix(matrix: unknown[][], name: string, origin: DataSource["origin"]): DataSource {
+  const clean = matrix.filter((r) => Array.isArray(r) && r.some((c) => c !== null && c !== undefined && String(c).trim() !== ""));
+  if (!clean.length) throw new Error("This sheet has no rows.");
+  const headerRow = clean[0].map((c, i) => {
+    const label = c === null || c === undefined ? "" : String(c).trim();
+    return label || `Column ${i + 1}`;
+  });
+  const seen = new Map<string, number>();
+  const headers = headerRow.map((h) => {
+    const n = (seen.get(h) || 0) + 1;
+    seen.set(h, n);
+    return n === 1 ? h : `${h} (${n})`;
+  });
+
+  const body = clean.slice(1);
+  const cells: (string | number | null)[][] = body.map((r) =>
+    headers.map((_, i) => {
+      const v = r[i];
+      if (v === null || v === undefined) return null;
+      if (v instanceof Date) {
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const ymd = `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}`;
+        const hasTime = v.getHours() || v.getMinutes() || v.getSeconds();
+        return hasTime ? `${ymd} ${pad(v.getHours())}:${pad(v.getMinutes())}` : ymd;
+      }
+      if (typeof v === "number" || typeof v === "string") return v;
+      if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+      return String(v);
+    }),
+  );
+
+  const fields: Field[] = headers.map((h, i) => inferField(h, cells.map((r) => r[i] ?? null)));
+  const rows: Row[] = cells.map((r) => {
+    const out: Row = {};
+    r.forEach((v, i) => {
+      out[headers[i]] = coerce(v, fields[i].type);
+    });
+    return out;
+  });
+
+  return { id: crypto.randomUUID(), name, fields, rows, origin };
+}
+
+export interface Spreadsheet {
+  sheets: string[];
+  read: (sheetName: string) => DataSource;
+}
+
+/** Parse an .xlsx / .xls / .xlsm workbook in the browser (SheetJS is loaded on demand). */
+export async function parseWorkbook(file: File, displayName = "Excel workbook"): Promise<Spreadsheet> {
+  const XLSX = await import("xlsx");
+  const buffer = await file.arrayBuffer();
+  let wb;
+  try {
+    wb = XLSX.read(buffer, { type: "array", cellDates: true, dense: false });
+  } catch {
+    throw new Error("Could not read this workbook. Password-protected or malformed files are not supported.");
+  }
+  const sheets = wb.SheetNames.filter((s) => wb.Sheets[s]);
+  if (!sheets.length) throw new Error("This workbook contains no visible sheets.");
+
+  return {
+    sheets,
+    read: (sheetName: string) => {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) throw new Error(`Sheet "${sheetName}" was not found.`);
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: null, blankrows: false });
+      const name = sheets.length > 1 ? `${displayName} · ${sheetName}` : displayName;
+      return sourceFromMatrix(matrix, name, "excel");
+    },
+  };
+}
+
 export function sampleDataSource(): DataSource {
   const rows: Row[] = [];
   const now = new Date();

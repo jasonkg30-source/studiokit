@@ -1,5 +1,7 @@
 export type FieldType = "string" | "number" | "date";
 
+export type DataSourceOrigin = "sample" | "csv" | "sheets" | "paste" | "excel";
+
 export interface Field {
   name: string;
   type: FieldType;
@@ -12,7 +14,7 @@ export interface DataSource {
   name: string;
   fields: Field[];
   rows: Row[];
-  origin: "sample" | "csv" | "sheets" | "paste";
+  origin: DataSourceOrigin;
 }
 
 export type Aggregation = "sum" | "avg" | "count" | "min" | "max" | "count_distinct";

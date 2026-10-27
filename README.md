@@ -7,7 +7,7 @@ Live: **https://studiokit-app.web.app**
 
 ## Features
 
-- **Data** — CSV upload, paste CSV, public Google Sheets (`/gviz/tq?tqx=out:csv`), or the built-in sample dataset. Types are inferred per column (string / number / date).
+- **Data** — CSV upload, Excel workbooks (.xlsx/.xls/.xlsm, multi-sheet picker), pasted CSV, public Google Sheets (`/gviz/tq?tqx=out:csv`), or the built-in sample dataset. Types are inferred per column (string / number / date).
 - **Visualizations** — scorecard, time series, area, bar, horizontal bar, stacked bar, pie, donut, scatter, table.
 - **Chart settings** — dimensions and metrics with SUM / AVG / COUNT / MIN / MAX / COUNT DISTINCT, sorting, row limits, palette, legend, gridlines, width (12-col grid) and height.
 - **Report** — multi-page tabs, global date-range filter, dimension filters, editable title.
@@ -55,4 +55,5 @@ docs/REA-NOTES.md         what was observed from Looker Studio and what was infe
 
 - Sheets import requires the sheet to be shared as "Anyone with the link → Viewer", and the browser must be able to reach Google (CORS).
 - Share links embed data, so treat them as public. Links above ~100 KB may be truncated by chat apps; export JSON or print to PDF instead.
+- Excel workbooks are parsed locally in the browser with SheetJS — nothing is uploaded to a server. Merged cells, formulas and pivot caches are read as their displayed values; charts/images inside a workbook are ignored.
 - Aggregation runs client-side; dashboards comfortably handle tens of thousands of rows, not millions.

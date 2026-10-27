@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Database, FileSpreadsheet, Link2, Upload, X } from "lucide-react";
-import { parseCsv, sampleDataSource } from "../data";
+import { Database, FileSpreadsheet, Link2, Loader2, Sheet, Upload, X } from "lucide-react";
+import { parseCsv, parseWorkbook, sampleDataSource, type Spreadsheet } from "../data";
 import type { DataSource } from "../types";
 
 interface Props {
@@ -9,11 +9,13 @@ interface Props {
 }
 
 export default function DataModal({ onClose, onConnect }: Props) {
-  const [tab, setTab] = useState<"csv" | "paste" | "sheets">("csv");
+  const [tab, setTab] = useState<"file" | "paste" | "sheets">("file");
   const [paste, setPaste] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [book, setBook] = useState<{ spreadsheet: Spreadsheet; fileName: string } | null>(null);
 
   const connectSample = () => {
     onConnect(sampleDataSource());
@@ -22,14 +24,38 @@ export default function DataModal({ onClose, onConnect }: Props) {
 
   const handleFile = async (file: File) => {
     setError("");
-    const text = await file.text();
+    setBusy(true);
     try {
-      const source = parseCsv(text, file.name.replace(/\.[^.]+$/, ""), "csv");
-      if (!source.rows.length) throw new Error("No rows found in this file.");
-      onConnect(source);
-      onClose();
+      const base = file.name.replace(/\.[^.]+$/, "");
+      if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
+        const spreadsheet = await parseWorkbook(file, base);
+        if (spreadsheet.sheets.length > 1) {
+          setBook({ spreadsheet, fileName: base });
+        } else {
+          onConnect(spreadsheet.read(spreadsheet.sheets[0]));
+          onClose();
+        }
+      } else {
+        const text = await file.text();
+        const source = parseCsv(text, base, "csv");
+        if (!source.rows.length) throw new Error("No rows found in this file.");
+        onConnect(source);
+        onClose();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not parse this file.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importSheet = (sheetName: string) => {
+    if (!book) return;
+    try {
+      onConnect(book.spreadsheet.read(sheetName));
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not read that sheet.");
     }
   };
 
@@ -78,8 +104,8 @@ export default function DataModal({ onClose, onConnect }: Props) {
         </div>
 
         <div className="tabs">
-          <button className={tab === "csv" ? "active" : ""} onClick={() => setTab("csv")}>
-            <Upload size={13} /> CSV file
+          <button className={tab === "file" ? "active" : ""} onClick={() => setTab("file")}>
+            <Upload size={13} /> CSV / Excel
           </button>
           <button className={tab === "paste" ? "active" : ""} onClick={() => setTab("paste")}>
             <FileSpreadsheet size={13} /> Paste
@@ -89,21 +115,58 @@ export default function DataModal({ onClose, onConnect }: Props) {
           </button>
         </div>
 
-        {tab === "csv" && (
-          <label className="dropzone">
-            <Upload size={22} />
-            <strong>Drop a CSV here</strong>
-            <span>or click to browse · max ~20 MB</span>
+        {tab === "file" && !book && (
+          <label
+            className={`dropzone ${dragging ? "dragging" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) void handleFile(f);
+            }}
+          >
+            {busy ? <Loader2 size={22} className="spin" /> : <Upload size={22} />}
+            <strong>{busy ? "Reading file…" : "Drop a CSV or Excel file here"}</strong>
+            <span>.csv · .xlsx · .xls · .xlsm — or click to browse</span>
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,.xls,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) void handleFile(f);
+                e.currentTarget.value = "";
               }}
             />
           </label>
+        )}
+
+        {tab === "file" && book && (
+          <div className="sheet-picker">
+            <div className="sheet-picker-head">
+              <Sheet size={14} />
+              <span>
+                <strong>{book.fileName}</strong> has {book.spreadsheet.sheets.length} sheets — pick one to import
+              </span>
+            </div>
+            <div className="sheet-list">
+              {book.spreadsheet.sheets.map((s) => (
+                <button key={s} className="sheet-item" onClick={() => importSheet(s)}>
+                  <FileSpreadsheet size={14} />
+                  <span>{s}</span>
+                  <span className="sheet-import">Import</span>
+                </button>
+              ))}
+            </div>
+            <button className="btn ghost" onClick={() => setBook(null)}>
+              Choose a different file
+            </button>
+          </div>
         )}
 
         {tab === "paste" && (
@@ -129,9 +192,7 @@ export default function DataModal({ onClose, onConnect }: Props) {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
-            <p className="hint">
-              The sheet must be shared publicly (Anyone with the link → Viewer). The first tab is imported.
-            </p>
+            <p className="hint">The sheet must be shared publicly (Anyone with the link → Viewer). The first tab is imported.</p>
             <button className="btn primary" onClick={connectSheets} disabled={busy}>
               {busy ? "Loading…" : "Connect sheet"}
             </button>
@@ -141,7 +202,7 @@ export default function DataModal({ onClose, onConnect }: Props) {
         {error && <div className="error-box">{error}</div>}
 
         <div className="modal-foot">
-          <span>No data yet?</span>
+          <span>Excel: first row becomes the header; real date cells import as dates.</span>
           <button className="btn ghost" onClick={connectSample}>
             <Database size={14} /> Load sample dataset
           </button>
