@@ -1260,6 +1260,11 @@ textarea {
   gap: 6px;
 }
 
+.file-btn {
+  cursor: pointer;
+  user-select: none;
+}
+
 .template-pick {
   display: flex;
   align-items: center;

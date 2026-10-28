@@ -2,6 +2,8 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import { decompressFromEncodedURIComponent } from "lz-string";
 import {
   ChevronDown,
+  Check,
+  Download,
   Eye,
   Filter,
   Layers,
@@ -19,6 +21,7 @@ import LeftPanel from "./components/LeftPanel";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource } from "./data";
+import { downloadReport } from "./save";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
 import type { Chart, DataSource, Report } from "./types";
 
@@ -95,6 +98,7 @@ function initialState(): UIState {
 export default function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const { report, source, selectedChartId, viewMode } = state;
+  const [saved, setSaved] = useState(false);
   const page = currentPage(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
 
@@ -219,9 +223,22 @@ export default function App() {
 
         <div className="top-actions">
           {!viewMode && (
-            <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showData: true } })}>
-              <Layers size={14} /> Data
-            </button>
+            <>
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  downloadReport(report, source);
+                  setSaved(true);
+                  setTimeout(() => setSaved(false), 1800);
+                }}
+                title="Download this dashboard as a file you can reopen or send"
+              >
+                {saved ? <Check size={14} /> : <Download size={14} />} {saved ? "Saved" : "Save"}
+              </button>
+              <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showData: true } })}>
+                <Layers size={14} /> Data
+              </button>
+            </>
           )}
           <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showShare: true } })}>
             <Share2 size={14} /> Share
@@ -431,7 +448,16 @@ export default function App() {
         />
       )}
       {state.showShare && (
-        <ShareModal report={report} source={source} readOnly={viewMode} onClose={() => dispatch({ type: "ui", patch: { showShare: false } })} />
+        <ShareModal
+          report={report}
+          source={source}
+          readOnly={viewMode}
+          onClose={() => dispatch({ type: "ui", patch: { showShare: false } })}
+          onImport={(data) => {
+            dispatch({ type: "setSource", source: data.source, report: data.report });
+            dispatch({ type: "ui", patch: { showShare: false, showData: false } });
+          }}
+        />
       )}
       {state.showAddMenu && !viewMode && (
         <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && dispatch({ type: "ui", patch: { showAddMenu: false } })}>

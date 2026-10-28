@@ -115,10 +115,19 @@ def hosting_config() -> dict:
         api["rewrites"] = [
             {"glob": rw.get("source", "**"), "path": rw["destination"]} for rw in cfg["rewrites"]
         ]
-    if cfg.get("headers"):
-        # The v1beta1 config schema rejects the CLI's header shape; cache headers are
-        # an optimisation only, so the deploy path skips them (defaults are fine).
-        pass
+    # v1beta1 shape: {glob, headers: {name: value}}; a list of key/value pairs is
+    # rejected with "Cannot bind a list to map for field 'headers'".
+    entries: list[dict] = []
+    for header in cfg.get("headers", []):
+        values = {h["key"]: h["value"] for h in header["headers"]}
+        for glob in api_globs(header["source"]):
+            entries.append({"glob": glob, "headers": values})
+    # Never cache the HTML shell: a cached shell keeps pointing at the previous
+    # bundle, so a deploy stays invisible for up to an hour.
+    entries.append({"glob": "/index.html", "headers": {"Cache-Control": "no-cache"}})
+    entries.append({"glob": "/", "headers": {"Cache-Control": "no-cache"}})
+    if entries:
+        api["headers"] = entries
     return api
 
 
