@@ -1260,6 +1260,60 @@ textarea {
   gap: 6px;
 }
 
+.template-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2, #f8fafc);
+}
+
+.template-pick-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.template-pick-hint {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.filter-range {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.range-dash {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.text-input.slim.num {
+  width: 74px;
+  height: 28px;
+  padding: 0 6px;
+  border-color: var(--line);
+  font-size: 12px;
+  -moz-appearance: textfield;
+}
+
+.text-input.slim.num::-webkit-outer-spin-button,
+.text-input.slim.num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 @media print {
   .topbar,
   .left-panel,

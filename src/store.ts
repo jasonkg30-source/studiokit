@@ -175,62 +175,85 @@ export function emptyReport(source: DataSource | null): Report {
 
 /** Ready-made report for the order-management sample: KPI row, type split, order list, product list. */
 export function orderReport(source: DataSource): Report {
+  const has = (name: string) => source.fields.some((f) => f.name === name);
+  const pick = (names: string[]) => names.filter(has);
+  const charts: Chart[] = [];
+
+  if (has("Amt")) {
+    charts.push(newChart("scorecard", {
+      title: "Amt (customer)",
+      metrics: [{ field: "Amt", agg: "sum" }],
+      width: 4,
+      height: 140,
+    }));
+  }
+  if (has("Qty")) {
+    charts.push(newChart("scorecard", {
+      title: "Qty (TTC)",
+      metrics: [{ field: "Qty", agg: "sum" }],
+      width: 4,
+      height: 140,
+    }));
+  }
+  if (has("SKU")) {
+    charts.push(newChart("scorecard", {
+      title: "SKU count",
+      metrics: [{ field: "SKU", agg: "count_distinct" }],
+      width: 4,
+      height: 140,
+    }));
+  }
+
+  const splitBy = has("Type") ? "Type" : has("Customer") ? "Customer" : null;
+  const pieMetric = has("Amt") ? "Amt" : has("Qty") ? "Qty" : null;
+  if (splitBy && pieMetric) {
+    charts.push(newChart("pie", {
+      title: `${pieMetric} by ${splitBy.toLowerCase()}`,
+      dimensions: [splitBy],
+      metrics: [{ field: pieMetric, agg: "sum" }],
+      width: 4,
+      height: 380,
+      sort: "metric_desc",
+      showLegend: true,
+    }));
+  }
+
+  const orderDims = pick(["ST PO#", "Customer PO", "Order Month", "Customer"]);
+  const orderMetrics = pick(["Amt", "Qty"]);
+  if (orderDims.length) {
+    charts.push(newChart("table", {
+      title: "Order list",
+      dimensions: orderDims.slice(0, 3),
+      metrics: orderMetrics.map((field) => ({ field, agg: "sum" as const })),
+      width: 8,
+      height: 380,
+      sort: "metric_desc",
+      limit: 40,
+      showLegend: false,
+    }));
+  }
+
+  const productDims = pick(["SKU", "Item", "Type"]);
+  if (productDims.length) {
+    charts.push(newChart("table", {
+      title: "Product list",
+      dimensions: productDims,
+      metrics: pick(["Qty", "Amt"]).map((field) => ({ field, agg: "sum" as const })),
+      width: 12,
+      height: 360,
+      sort: "metric_desc",
+      limit: 20,
+      showLegend: false,
+    }));
+  }
+
   const page: ReportPage = {
     id: crypto.randomUUID(),
     name: "Orders",
-    charts: [
-      newChart("scorecard", {
-        title: "Amt (customer)",
-        metrics: [{ field: "Amt", agg: "sum" }],
-        width: 4,
-        height: 140,
-      }),
-      newChart("scorecard", {
-        title: "Qty (TTC)",
-        metrics: [{ field: "Qty", agg: "sum" }],
-        width: 4,
-        height: 140,
-      }),
-      newChart("scorecard", {
-        title: "SKU count",
-        metrics: [{ field: "SKU", agg: "count_distinct" }],
-        width: 4,
-        height: 140,
-      }),
-      newChart("pie", {
-        title: "Amt by type",
-        dimensions: ["Type"],
-        metrics: [{ field: "Amt", agg: "sum" }],
-        width: 4,
-        height: 380,
-        sort: "metric_desc",
-        showLegend: true,
-      }),
-      newChart("table", {
-        title: "Order list",
-        dimensions: ["ST PO#", "Customer PO", "Order Month"],
-        metrics: [
-          { field: "Amt", agg: "sum" },
-          { field: "Qty", agg: "sum" },
-        ],
-        width: 8,
-        height: 380,
-        sort: "metric_desc",
-        limit: 40,
-        showLegend: false,
-      }),
-      newChart("table", {
-        title: "Product list",
-        dimensions: ["SKU", "Item", "Type"],
-        metrics: [{ field: "Qty", agg: "sum" }],
-        width: 12,
-        height: 360,
-        sort: "metric_desc",
-        limit: 20,
-        showLegend: false,
-      }),
-    ],
+    charts,
   };
+
+  const dateField = has("Order Date") ? "Order Date" : has("ETA") ? "ETA" : null;
 
   return {
     id: crypto.randomUUID(),
@@ -238,15 +261,12 @@ export function orderReport(source: DataSource): Report {
     sourceId: source.id,
     pages: [page],
     activePageId: page.id,
-    dateField: "Order Date",
+    dateField,
     dateRange: "all",
-    filters: [
-      { field: "Customer", values: [] },
-      { field: "Region", values: [] },
-      { field: "Type", values: [] },
-      { field: "Order Month", values: [] },
-      { field: "Status", values: [] },
-    ],
+    filters: pick(["Customer", "Region", "Type", "Order Month", "Status", "Amt", "Qty"]).map((field) => ({
+      field,
+      values: [],
+    })),
     theme: "light",
   };
 }

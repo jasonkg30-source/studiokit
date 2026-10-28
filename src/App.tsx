@@ -18,7 +18,7 @@ import DataModal from "./components/DataModal";
 import LeftPanel from "./components/LeftPanel";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
-import { dateWindow, orderTrackerSource, sampleDataSource } from "./data";
+import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource } from "./data";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
 import type { Chart, DataSource, Report } from "./types";
 
@@ -116,6 +116,19 @@ export default function App() {
     if (!source) return [];
     let rows = report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows;
     for (const f of report.filters) {
+      const lo = f.min !== undefined && f.min !== "" ? Number(f.min) : null;
+      const hi = f.max !== undefined && f.max !== "" ? Number(f.max) : null;
+      if (lo !== null || hi !== null) {
+        rows = rows.filter((r) => {
+          const raw = r[f.field];
+          const n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[$,%\s]/g, ""));
+          if (raw === null || raw === undefined || raw === "" || isNaN(n)) return false;
+          if (lo !== null && n < lo) return false;
+          if (hi !== null && n > hi) return false;
+          return true;
+        });
+        continue;
+      }
       if (!f.values.length) continue;
       rows = rows.filter((r) => f.values.includes(String(r[f.field])));
     }
@@ -130,6 +143,14 @@ export default function App() {
         field: f.name,
         values: Array.from(new Set(source.rows.map((r) => String(r[f.name] ?? "")))).sort().slice(0, 200),
       }));
+  }, [source]);
+
+  /** Fields a filter can be built on: categorical text plus numeric measures. */
+  const filterFields = useMemo(() => {
+    if (!source) return [] as { name: string; kind: "text" | "number" }[];
+    return source.fields
+      .filter((f) => f.type === "string" || f.type === "number")
+      .map((f) => ({ name: f.name, kind: f.type === "number" ? "number" as const : "text" as const }));
   }, [source]);
 
   const loadTemplate = (kind: "marketing" | "order") => {
@@ -234,6 +255,7 @@ export default function App() {
             </div>
 
             {report.filters.map((f, i) => {
+              const kind = filterFields.find((d) => d.name === f.field)?.kind ?? "text";
               const values = dimensionValues.find((d) => d.field === f.field)?.values ?? [];
               return (
                 <div className="filter-group" key={i}>
@@ -246,28 +268,58 @@ export default function App() {
                       dispatch({ type: "setReport", report: { ...report, filters: next } });
                     }}
                   >
-                    {dimensionValues.map((d) => (
-                      <option key={d.field} value={d.field}>
-                        {d.field}
+                    {filterFields.map((d) => (
+                      <option key={d.name} value={d.name}>
+                        {d.name}
                       </option>
                     ))}
                   </select>
-                  <select
-                    className="select slim"
-                    value={f.values[0] ?? ""}
-                    onChange={(e) => {
-                      const next = [...report.filters];
-                      next[i] = { ...f, values: e.target.value ? [e.target.value] : [] };
-                      dispatch({ type: "setReport", report: { ...report, filters: next } });
-                    }}
-                  >
-                    <option value="">All</option>
-                    {values.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
+                  {kind === "number" ? (
+                    <div className="filter-range">
+                      <input
+                        className="text-input slim num"
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="min"
+                        value={f.min ?? ""}
+                        onChange={(e) => {
+                          const next = [...report.filters];
+                          next[i] = { ...f, min: e.target.value };
+                          dispatch({ type: "setReport", report: { ...report, filters: next } });
+                        }}
+                      />
+                      <span className="range-dash">–</span>
+                      <input
+                        className="text-input slim num"
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="max"
+                        value={f.max ?? ""}
+                        onChange={(e) => {
+                          const next = [...report.filters];
+                          next[i] = { ...f, max: e.target.value };
+                          dispatch({ type: "setReport", report: { ...report, filters: next } });
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <select
+                      className="select slim"
+                      value={f.values[0] ?? ""}
+                      onChange={(e) => {
+                        const next = [...report.filters];
+                        next[i] = { ...f, values: e.target.value ? [e.target.value] : [] };
+                        dispatch({ type: "setReport", report: { ...report, filters: next } });
+                      }}
+                    >
+                      <option value="">All</option>
+                      {values.map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button
                     className="icon-btn"
                     onClick={() =>
@@ -280,13 +332,13 @@ export default function App() {
               );
             })}
 
-            {!viewMode && dimensionValues.length > 0 && (
+            {!viewMode && filterFields.length > 0 && (
               <button
                 className="btn ghost slim"
                 onClick={() =>
                   dispatch({
                     type: "setReport",
-                    report: { ...report, filters: [...report.filters, { field: dimensionValues[0].field, values: [] }] },
+                    report: { ...report, filters: [...report.filters, { field: filterFields[0].name, values: [] }] },
                   })
                 }
               >
@@ -357,7 +409,16 @@ export default function App() {
         <DataModal
           onClose={() => dispatch({ type: "ui", patch: { showData: false } })}
           onTemplate={(kind) => loadTemplate(kind)}
-          onConnect={(src) => {
+          onConnect={(src, template) => {
+            const mapped = template === "none" ? null : adaptToOrderSchema(src);
+            if (mapped?.usable) {
+              const built = orderReport(mapped.source);
+              dispatch({ type: "setSource", source: mapped.source, report: { ...built, title: src.name } });
+              return null;
+            }
+            if (template === "order") {
+              return "This file needs at least a quantity column and an amount column (Amt / Total / Amount) to build the Order tracker. Add them, or pick “Blank canvas”.";
+            }
             const hasCharts = report.pages.some((p) => p.charts.length > 0);
             if (hasCharts) {
               dispatch({ type: "setSource", source: src, report: { ...report, sourceId: src.id, dateField: src.fields.find((f) => f.type === "date")?.name ?? null, filters: [] } });
@@ -365,6 +426,7 @@ export default function App() {
               const fresh = emptyReport(src);
               dispatch({ type: "setSource", source: src, report: { ...fresh, title: report.title } });
             }
+            return null;
           }}
         />
       )}

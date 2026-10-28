@@ -273,6 +273,113 @@ export const AGG_LABEL: Record<Aggregation, string> = {
   count_distinct: "COUNT DISTINCT",
 };
 
+/**
+ * Canonical Order Tracker fields, keyed by the aliases real order exports use.
+ * Header matching is done on a normalised header (lowercase, alphanumerics only).
+ */
+const ORDER_SCHEMA: { name: string; type: FieldType; aliases: string[] }[] = [
+  { name: "ST PO#", type: "string", aliases: ["stpo", "stpo#", "stpono", "stponum", "stponumber", "storderno", "orderno", "orderid", "sono", "sonumber", "salesorder"] },
+  { name: "Customer PO", type: "string", aliases: ["customerpo", "custpo", "custpono", "ponumber", "pono", "po"] },
+  { name: "Customer", type: "string", aliases: ["customer", "customername", "account", "accountname", "buyer", "client"] },
+  { name: "Type", type: "string", aliases: ["type", "producttype", "category", "productcategory", "itemtype"] },
+  { name: "Region", type: "string", aliases: ["region", "territory", "area", "salesregion"] },
+  { name: "Port", type: "string", aliases: ["port", "portofloading", "destinationport"] },
+  { name: "SKU", type: "string", aliases: ["sku", "skucode", "itemno", "itemnum", "itemnumber", "itemcode", "partno", "partnumber", "style"] },
+  { name: "Item", type: "string", aliases: ["item", "itemname", "itemdesc", "itemdescription", "product", "productname", "description", "desc"] },
+  { name: "Qty", type: "number", aliases: ["qty", "quantity", "units", "ttlqty", "totalqty"] },
+  { name: "Amt", type: "number", aliases: ["amt", "amount", "total", "totalamount", "totalamt", "ordervalue", "ordertotal", "extendedprice", "value", "revenue"] },
+  { name: "Order Date", type: "date", aliases: ["orderdate", "podate", "date", "orderedon", "orderdt"] },
+  { name: "Order Month", type: "string", aliases: ["ordermonth", "orderperiod", "month", "period", "yyyymm"] },
+  { name: "ETA", type: "date", aliases: ["eta", "shipdate", "deliverydate", "duedate"] },
+  { name: "Status", type: "string", aliases: ["status", "orderstatus", "state"] },
+];
+
+export const ORDER_REQUIRED = ["Amt", "Qty"];
+
+export interface OrderMapping {
+  source: DataSource;
+  matched: Record<string, string>;
+  missing: string[];
+  /** True when the file had enough order columns to build the template. */
+  usable: boolean;
+}
+
+const normaliseHeader = (name: string) => name.toLowerCase().replace(/[^a-z0-9#]/g, "");
+
+/**
+ * Re-labels an uploaded file's columns to the Order Tracker schema so the
+ * template report, filters and charts can run against it unchanged.
+ */
+export function adaptToOrderSchema(input: DataSource): OrderMapping {
+  const matched: Record<string, string> = {};
+  const used = new Set<string>();
+  const headers = input.fields.map((f) => f.name);
+  const normalised = new Map(headers.map((h) => [h, normaliseHeader(h)]));
+
+  for (const target of ORDER_SCHEMA) {
+    const exact = headers.find((h) => !used.has(h) && normalised.get(h) === normaliseHeader(target.name));
+    if (exact) {
+      matched[target.name] = exact;
+      used.add(exact);
+    }
+  }
+  for (const target of ORDER_SCHEMA) {
+    if (matched[target.name]) continue;
+    const hit = headers.find(
+      (h) => !used.has(h) && target.aliases.some((alias) => normalised.get(h) === normaliseHeader(alias)),
+    );
+    if (hit) {
+      matched[target.name] = hit;
+      used.add(hit);
+    }
+  }
+
+  const fields: Field[] = ORDER_SCHEMA.filter((t) => matched[t.name]).map((t) => ({ name: t.name, type: t.type }));
+  const missing = ORDER_SCHEMA.filter((t) => !matched[t.name]).map((t) => t.name);
+
+  const monthFromDate = (value: string | number | null): string => {
+    const text = String(value ?? "");
+    return /^\d{4}-\d{2}/.test(text) ? text.slice(0, 7) : "";
+  };
+  const dateFromMonth = (value: string | number | null): string => {
+    const text = String(value ?? "").trim();
+    if (/^\d{4}-\d{2}$/.test(text)) return `${text}-01`;
+    const parsed = Date.parse(text);
+    if (isNaN(parsed)) return "";
+    return new Date(parsed).toISOString().slice(0, 10);
+  };
+
+  const rows: Row[] = input.rows.map((row) => {
+    const out: Row = {};
+    for (const field of fields) {
+      const header = matched[field.name];
+      const value = row[header];
+      out[field.name] = field.type === "number" ? coerce(value, "number") : String(value ?? "");
+    }
+    if (fields.some((f) => f.name === "Order Month") && !out["Order Month"]) {
+      out["Order Month"] = monthFromDate(matched["Order Date"] ? row[matched["Order Date"]] : null);
+    }
+    if (fields.some((f) => f.name === "Order Date") && !out["Order Date"]) {
+      out["Order Date"] = dateFromMonth(out["Order Month"] ?? null);
+    }
+    return out;
+  });
+
+  return {
+    source: {
+      id: crypto.randomUUID(),
+      name: input.name,
+      origin: input.origin,
+      fields,
+      rows,
+    },
+    matched,
+    missing,
+    usable: ORDER_REQUIRED.every((name) => !!matched[name]),
+  };
+}
+
+
 export function aggregateValue(rows: Row[], field: string, agg: Aggregation): number {
   if (agg === "count") return rows.length;
   if (agg === "count_distinct") return new Set(rows.map((r) => String(r[field] ?? ""))).size;

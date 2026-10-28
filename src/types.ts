@@ -54,6 +54,9 @@ export interface Chart {
 export interface Filter {
   field: string;
   values: string[];
+  /** Inclusive numeric bounds; empty string or undefined means open-ended. */
+  min?: string;
+  max?: string;
 }
 
 export interface ReportPage {

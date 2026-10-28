@@ -5,9 +5,11 @@ import type { DataSource } from "../types";
 
 interface Props {
   onClose: () => void;
-  onConnect: (source: DataSource) => void;
+  onConnect: (source: DataSource, template: TemplateChoice) => string | null;
   onTemplate: (kind: "marketing" | "order") => void;
 }
+
+export type TemplateChoice = "auto" | "order" | "none";
 
 export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
   const [tab, setTab] = useState<"file" | "paste" | "sheets">("file");
@@ -16,7 +18,19 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [template, setTemplate] = useState<TemplateChoice>("auto");
   const [book, setBook] = useState<{ spreadsheet: Spreadsheet; fileName: string } | null>(null);
+
+  /** Applies the chosen template; keeps the modal open when it cannot be used. */
+  const finish = (source: DataSource) => {
+    const message = onConnect(source, template);
+    if (message) {
+      setError(message);
+      return false;
+    }
+    onClose();
+    return true;
+  };
 
   const handleFile = async (file: File) => {
     setError("");
@@ -28,15 +42,13 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
         if (spreadsheet.sheets.length > 1) {
           setBook({ spreadsheet, fileName: base });
         } else {
-          onConnect(spreadsheet.read(spreadsheet.sheets[0]));
-          onClose();
+          finish(spreadsheet.read(spreadsheet.sheets[0]));
         }
       } else {
         const text = await file.text();
         const source = parseCsv(text, base, "csv");
         if (!source.rows.length) throw new Error("No rows found in this file.");
-        onConnect(source);
-        onClose();
+        finish(source);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not parse this file.");
@@ -48,8 +60,7 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
   const importSheet = (sheetName: string) => {
     if (!book) return;
     try {
-      onConnect(book.spreadsheet.read(sheetName));
-      onClose();
+      finish(book.spreadsheet.read(sheetName));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not read that sheet.");
     }
@@ -61,8 +72,7 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
     try {
       const source = parseCsv(paste, "Pasted data", "paste");
       if (!source.rows.length) throw new Error("No rows found.");
-      onConnect(source);
-      onClose();
+      finish(source);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not parse pasted text.");
     }
@@ -80,8 +90,7 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
       const text = await res.text();
       const source = parseCsv(text, "Google Sheet", "sheets");
       if (!source.rows.length) throw new Error("The sheet is empty or the first sheet has no data.");
-      onConnect(source);
-      onClose();
+      finish(source);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load that sheet (browser CORS/visibility limits).");
     } finally {
@@ -97,6 +106,25 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
           <button className="icon-btn" onClick={onClose}>
             <X size={16} />
           </button>
+        </div>
+
+        <div className="template-pick">
+          <span className="template-pick-label">Template for this data</span>
+          <select
+            className="select slim"
+            value={template}
+            onChange={(e) => setTemplate(e.target.value as TemplateChoice)}
+            aria-label="Template for this data"
+          >
+            <option value="auto">Auto — match my columns</option>
+            <option value="order">Order tracker</option>
+            <option value="none">Blank canvas</option>
+          </select>
+          <span className="template-pick-hint">
+            {template === "none"
+              ? "Columns stay as they are; you build the charts yourself."
+              : "Order tracker reads Amt, Qty, SKU, Item, Type, Customer, Region, Order Date, Status — other columns are ignored."}
+          </span>
         </div>
 
         <div className="tabs">
