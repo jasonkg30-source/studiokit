@@ -22,6 +22,7 @@ import LeftPanel from "./components/LeftPanel";
 import MultiSelect from "./components/MultiSelect";
 import TemplateModal from "./components/TemplateModal";
 import { saveTemplate, type SavedTemplate } from "./templates";
+import { QuotaError, readJSON, writeJSON } from "./storage";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource } from "./data";
@@ -68,9 +69,8 @@ function initialState(): UIState {
     };
   }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed: Persisted = JSON.parse(raw);
+    const parsed = readJSON<Persisted>(STORAGE_KEY);
+    if (parsed) {
       if (parsed.report?.pages?.length) {
         return {
           report: parsed.report,
@@ -103,22 +103,42 @@ export default function App() {
   const { report, source, selectedChartId, viewMode } = state;
   const [saved, setSaved] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const quotaWarned = useRef(false);
   const page = currentPage(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
 
   useEffect(() => {
     if (viewMode) return;
-    const payload: Persisted = { report, source };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch {
-      /* storage full — ignore */
-    }
+    // Debounced: big imports would otherwise re-serialise on every keystroke.
+    const id = window.setTimeout(() => {
+      try {
+        writeJSON(STORAGE_KEY, { report, source } satisfies Persisted);
+      } catch (e) {
+        // Keep the layout even when the rows no longer fit the browser quota.
+        try {
+          writeJSON(STORAGE_KEY, { report, source: null } satisfies Persisted);
+          if (e instanceof QuotaError && !quotaWarned.current) {
+            quotaWarned.current = true;
+            setToast("Data too large to autosave — layout saved");
+          }
+        } catch {
+          setToast("Autosave failed — browser storage is full");
+        }
+      }
+    }, 600);
+    return () => window.clearTimeout(id);
   }, [report, source, viewMode]);
 
   useEffect(() => {
     document.title = `${report.title} · StudioKit`;
   }, [report.title]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 3600);
+    return () => window.clearTimeout(id);
+  }, [toast]);
 
   const filteredRows = useMemo(() => {
     if (!source) return [];
@@ -232,9 +252,22 @@ export default function App() {
               <button
                 className="btn ghost"
                 onClick={() => {
-                  saveTemplate(report.title, report, source);
-                  setSaved(true);
-                  setTimeout(() => setSaved(false), 1800);
+                  try {
+                    const entry = saveTemplate(report.title, report, source);
+                    setToast(
+                      entry.dataOmitted
+                        ? "Saved layout only — this data is too large for browser storage"
+                        : `Saved “${entry.name}” to Templates`,
+                    );
+                    setSaved(true);
+                    setTimeout(() => setSaved(false), 1800);
+                  } catch (e) {
+                    setToast(
+                      e instanceof QuotaError
+                        ? "Save failed — browser storage is full. Delete an old template first."
+                        : `Save failed — ${e instanceof Error ? e.message : "unknown error"}`,
+                    );
+                  }
                 }}
                 title="Save this dashboard in your templates"
               >
@@ -436,6 +469,12 @@ export default function App() {
             setShowTemplates(false);
           }}
         />
+      )}
+
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
       )}
 
       {state.showData && !viewMode && (

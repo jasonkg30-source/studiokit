@@ -1,4 +1,5 @@
 import type { DataSource, Report } from "./types";
+import { QuotaError, rawBytes, readJSON, writeJSON } from "./storage";
 
 export interface SavedTemplate {
   id: string;
@@ -11,57 +12,58 @@ export interface SavedTemplate {
 }
 
 const KEY = "studiokit.templates.v1";
-const MAX_BYTES = 4_000_000;
 
 export function listTemplates(): SavedTemplate[] {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as SavedTemplate[]) : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJSON<SavedTemplate[]>(KEY);
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 function persist(all: SavedTemplate[]) {
-  localStorage.setItem(KEY, JSON.stringify(all));
+  writeJSON(KEY, all);
 }
 
-/** Stores the current dashboard; drops the data when it would not fit in localStorage. */
+/**
+ * Stores the current dashboard. Falls back to a layout-only template (pruning
+ * the oldest saved ones if needed) so Save never fails silently on a big import.
+ */
 export function saveTemplate(name: string, report: Report, source: DataSource | null): SavedTemplate {
   const all = listTemplates();
+  const cleanName = name.trim() || report.title || "Untitled template";
   const base: SavedTemplate = {
     id: crypto.randomUUID(),
-    name: name.trim() || report.title || "Untitled template",
+    name: cleanName,
     createdAt: Date.now(),
-    report: { ...report, title: name.trim() || report.title },
+    report: { ...report, title: cleanName },
     source,
   };
+  const others = all.filter((t) => t.name !== cleanName);
 
-  let dataOmitted = false;
-  if (JSON.stringify(base).length > MAX_BYTES) {
-    dataOmitted = true;
+  try {
+    persist([base, ...others]);
+    return base;
+  } catch (e) {
+    if (!(e instanceof QuotaError)) throw e;
   }
-  const entry: SavedTemplate = dataOmitted ? { ...base, source: null, dataOmitted } : base;
 
-  const next = [entry, ...all.filter((t) => t.name !== entry.name)];
-  persist(next);
-  return entry;
+  const layoutOnly: SavedTemplate = { ...base, source: null, dataOmitted: true };
+  let pool = [layoutOnly, ...others];
+  while (pool.length) {
+    try {
+      persist(pool);
+      return layoutOnly;
+    } catch (e) {
+      if (!(e instanceof QuotaError)) throw e;
+      if (pool.length === 1) break;
+      pool = pool.slice(0, pool.length - 1);
+    }
+  }
+  throw new QuotaError("No room left for another template");
 }
 
 export function deleteTemplate(id: string) {
   persist(listTemplates().filter((t) => t.id !== id));
 }
 
-export function renameTemplate(id: string, name: string) {
-  persist(listTemplates().map((t) => (t.id === id ? { ...t, name } : t)));
-}
-
 export function templateBytes(): number {
-  try {
-    return new Blob([localStorage.getItem(KEY) ?? ""]).size;
-  } catch {
-    return 0;
-  }
+  return rawBytes(KEY);
 }
