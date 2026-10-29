@@ -1905,3 +1905,39 @@ body.chart-drag * {
     transform: translate(-50%, 0);
   }
 }
+
+/* ---------- move chart left / right ---------- */
+.card-move {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.card:hover .card-move,
+.card.selected .card-move {
+  opacity: 1;
+}
+
+.card-move .icon-btn {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.card-move .icon-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.card-move .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { decompressFromEncodedURIComponent } from "lz-string";
 import {
+  ArrowLeft,
+  ArrowRight,
   ChevronDown,
   Check,
   Bookmark,
@@ -425,7 +427,7 @@ export default function App() {
             </div>
           ) : (
             <div className="grid">
-              {page.charts.map((c) => (
+              {page.charts.map((c, ci) => (
                 <ChartCard
                   key={c.id}
                   chart={c}
@@ -436,6 +438,16 @@ export default function App() {
                   onDelete={() => dispatch({ type: "deleteChart", id: c.id })}
                   onResize={(w, h) => dispatch({ type: "updateChart", id: c.id, patch: { width: w, height: h } })}
                   onMoveChart={(draggedId, beforeId) => dispatch({ type: "moveChart", id: draggedId, beforeId })}
+                  onMove={(dir) => {
+                    const charts = page.charts;
+                    const from = charts.findIndex((x) => x.id === c.id);
+                    const targetIndex = from + dir;
+                    if (targetIndex < 0 || targetIndex >= charts.length) return;
+                    const beforeId = dir === -1 ? charts[from - 1]?.id ?? null : charts[from + 2]?.id ?? null;
+                    dispatch({ type: "moveChart", id: c.id, beforeId });
+                  }}
+                  canMoveLeft={ci > 0}
+                  canMoveRight={ci < page.charts.length - 1}
                   onDropField={(name) => {
                     dispatch({ type: "selectChart", id: c.id });
                     const field = source?.fields.find((f) => f.name === name);
@@ -548,9 +560,25 @@ interface CardProps {
   onResize: (width: number, height: number) => void;
   onMoveChart: (draggedId: string, beforeId: string | null) => void;
   onDropField: (name: string) => void;
+  onMove: (dir: -1 | 1) => void;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
 }
 
-function ChartCard({ chart, rows, selected, viewMode, onSelect, onDelete, onResize, onMoveChart, onDropField }: CardProps) {
+function ChartCard({
+  chart,
+  rows,
+  selected,
+  viewMode,
+  onSelect,
+  onDelete,
+  onResize,
+  onMoveChart,
+  onDropField,
+  onMove,
+  canMoveLeft,
+  canMoveRight,
+}: CardProps) {
   const [over, setOver] = useState(false);
   const [draft, setDraft] = useState<{ w: number; h: number } | null>(null);
   const card = useRef<HTMLElement>(null);
@@ -672,6 +700,34 @@ function ChartCard({ chart, rows, selected, viewMode, onSelect, onDelete, onResi
           <Pencil size={12} className="card-edit-icon" />
           <h3>{chart.title}</h3>
         </div>
+        {!viewMode && (
+          <div className="card-move">
+            <button
+              className="icon-btn"
+              title="Move chart left"
+              aria-label="Move chart left"
+              disabled={!canMoveLeft}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMove(-1);
+              }}
+            >
+              <ArrowLeft size={13} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Move chart right"
+              aria-label="Move chart right"
+              disabled={!canMoveRight}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMove(1);
+              }}
+            >
+              <ArrowRight size={13} />
+            </button>
+          </div>
+        )}
         {!viewMode && selected && (
           <button
             className="icon-btn danger"
