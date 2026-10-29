@@ -17,12 +17,224 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
 import { buildSeries, formatNumber, metricLabel } from "../data";
 
 interface Props {
   chart: Chart;
   rows: Row[];
+}
+
+type SortState = { col: string; dir: "asc" | "desc" } | null;
+
+interface ColFilter {
+  values?: string[];
+  min?: string;
+  max?: string;
+}
+
+/** Table where every column can be sorted and filtered from its header. */
+function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; metrics: Chart["metrics"] }) {
+  const [sort, setSort] = useState<SortState>(null);
+  const [filters, setFilters] = useState<Record<string, ColFilter>>({});
+  const [openCol, setOpenCol] = useState<string | null>(null);
+  const dims = chart.dimensions;
+
+  const valueOf = (row: Row, col: string): string | number => {
+    if (col.startsWith("d:")) return String(row.key).split(" / ")[Number(col.slice(2))] ?? "";
+    return Number(row[col.slice(2)] ?? 0);
+  };
+
+  const columns = useMemo(
+    () => [
+      ...dims.map((d, i) => ({ col: `d:${i}`, label: d, numeric: false })),
+      ...metrics.map((m) => ({ col: `m:${m.field}`, label: metricLabel(m), numeric: true })),
+    ],
+    [dims, metrics],
+  );
+
+  /** Distinct values per text column, for the header filter list. */
+  const distinct = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const c of columns) {
+      if (c.numeric) continue;
+      map[c.col] = Array.from(new Set(data.map((row) => String(valueOf(row, c.col))))).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+      );
+    }
+    return map;
+  }, [columns, data]);
+
+  const rows = useMemo(() => {
+    const active = Object.entries(filters).filter(([, f]) => f && ((f.values?.length ?? 0) > 0 || f.min || f.max));
+    let out = active.length
+      ? data.filter((row) =>
+          active.every(([col, f]) => {
+            if (f.values?.length) return f.values.includes(String(valueOf(row, col)));
+            const v = Number(valueOf(row, col));
+            if (!Number.isFinite(v)) return false;
+            if (f.min && v < Number(f.min)) return false;
+            if (f.max && v > Number(f.max)) return false;
+            return true;
+          }),
+        )
+      : data;
+    if (sort) {
+      const sign = sort.dir === "asc" ? 1 : -1;
+      out = [...out].sort((a, b) => {
+        const av = valueOf(a, sort.col);
+        const bv = valueOf(b, sort.col);
+        const an = Number(av);
+        const bn = Number(bv);
+        if (Number.isFinite(an) && Number.isFinite(bn)) return (an - bn) * sign;
+        return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" }) * sign;
+      });
+    }
+    return out;
+  }, [data, filters, sort]);
+
+  const toggleSort = (col: string) =>
+    setSort((cur) => {
+      if (!cur || cur.col !== col) return { col, dir: "asc" };
+      if (cur.dir === "asc") return { col, dir: "desc" };
+      return null;
+    });
+
+  const setFilter = (col: string, next: ColFilter) => {
+    setFilters((cur) => {
+      const copy = { ...cur };
+      const empty = !(next.values?.length) && !next.min && !next.max;
+      if (empty) delete copy[col];
+      else copy[col] = next;
+      return copy;
+    });
+  };
+
+  const activeCount = Object.keys(filters).length;
+
+  const icon = (col: string) => {
+    if (sort?.col !== col) return <ChevronsUpDown size={11} className="sort-idle" />;
+    return sort.dir === "asc" ? <ChevronUp size={11} /> : <ChevronDown size={11} />;
+  };
+
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            {columns.map((c) => {
+              const f = filters[c.col];
+              const has = !!f;
+              return (
+                <th key={c.col} className={`${c.numeric ? "num" : ""} ${sort?.col === c.col ? "sorted" : ""} ${openCol === c.col ? "menu-open" : ""}`}>
+                  <div className="th-row">
+                    <button type="button" className="th-sort" onClick={() => toggleSort(c.col)} title={`Sort by ${c.label}`}>
+                      <span>{c.label}</span>
+                      {icon(c.col)}
+                    </button>
+                    <button
+                      type="button"
+                      className={`th-filter ${has ? "on" : ""}`}
+                      onClick={() => setOpenCol((cur) => (cur === c.col ? null : c.col))}
+                      title={`Filter ${c.label}`}
+                      aria-label={`Filter ${c.label}`}
+                    >
+                      <Filter size={11} />
+                    </button>
+                  </div>
+
+                  {openCol === c.col && (
+                    <div className="th-pop" onClick={(e) => e.stopPropagation()}>
+                      {c.numeric ? (
+                        <div className="th-pop-body">
+                          <div className="th-pop-row">
+                            <input
+                              className="text-input slim num"
+                              type="number"
+                              placeholder="min"
+                              value={f?.min ?? ""}
+                              onChange={(e) => setFilter(c.col, { ...f, min: e.target.value })}
+                            />
+                            <span className="range-dash">–</span>
+                            <input
+                              className="text-input slim num"
+                              type="number"
+                              placeholder="max"
+                              value={f?.max ?? ""}
+                              onChange={(e) => setFilter(c.col, { ...f, max: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="th-pop-head">{(distinct[c.col] ?? []).length} values</div>
+                          <div className="th-pop-list">
+                            {(distinct[c.col] ?? []).map((v) => {
+                              const on = f?.values?.includes(v) ?? false;
+                              return (
+                                <label key={v} className={`th-pop-item ${on ? "on" : ""}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={on}
+                                    onChange={() =>
+                                      setFilter(c.col, {
+                                        values: on ? (f?.values ?? []).filter((x) => x !== v) : [...(f?.values ?? []), v],
+                                      })
+                                    }
+                                  />
+                                  <span>{v || "(blank)"}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                      <div className="th-pop-foot">
+                        <button type="button" className="link-btn" onClick={() => setFilter(c.col, {})}>
+                          Clear
+                        </button>
+                        <button type="button" className="link-btn" onClick={() => setOpenCol(null)}>
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={columns.length} className="table-empty">
+                No rows match these column filters
+              </td>
+            </tr>
+          )}
+          {rows.map((row) => (
+            <tr key={String(row.key)}>
+              {dims.map((d, i) => (
+                <td key={`${d}-${i}`}>{String(row.key).split(" / ")[i]}</td>
+              ))}
+              {metrics.map((m) => (
+                <td key={m.field} className="num">
+                  {formatNumber(Number(row[m.field] ?? 0))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {activeCount > 0 && (
+        <button type="button" className="table-filter-reset" onClick={() => setFilters({})}>
+          Clear {activeCount} column filter{activeCount > 1 ? "s" : ""}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function tooltipStyle() {
@@ -71,38 +283,7 @@ export default function ChartRenderer({ chart, rows }: Props) {
       );
     }
     case "table":
-      return (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                {chart.dimensions.map((d) => (
-                  <th key={d}>{d}</th>
-                ))}
-                {metrics.map((m) => (
-                  <th key={m.field} className="num">
-                    {metricLabel(m)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row) => (
-                <tr key={String(row.key)}>
-                  {chart.dimensions.map((d, i) => (
-                    <td key={d}>{String(row.key).split(" / ")[i]}</td>
-                  ))}
-                  {metrics.map((m) => (
-                    <td key={m.field} className="num">
-                      {formatNumber(Number(row[m.field] ?? 0))}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <SortableTable chart={chart} data={data} metrics={metrics} />;
     case "timeseries":
     case "area":
       return (

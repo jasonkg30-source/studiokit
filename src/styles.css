@@ -1360,3 +1360,519 @@ textarea {
     flex-basis: 250px;
   }
 }
+
+/* ---------- chart move / resize ---------- */
+.card-head[draggable="true"] {
+  cursor: grab;
+}
+
+.card-head[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.card.moving {
+  opacity: 0.45;
+}
+
+.card.resizing {
+  transition: none;
+  user-select: none;
+}
+
+.card.drop {
+  border-color: var(--accent);
+  background: #f8fbff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.chart-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  touch-action: none;
+  z-index: 4;
+}
+
+.card:hover .chart-resize,
+.card.selected .chart-resize {
+  opacity: 1;
+}
+
+.chart-resize::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+  border-bottom-right-radius: 2px;
+}
+
+.card:hover .chart-resize::after {
+  border-color: var(--accent);
+}
+
+.chart-resize-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  background: var(--text);
+  color: #fff;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ---------- multi select filter ---------- */
+.ms {
+  position: relative;
+}
+
+.ms-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 200px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.ms-btn:hover {
+  border-color: var(--line-strong);
+}
+
+.ms-btn.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.ms-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-count {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0 5px;
+  line-height: 15px;
+}
+
+.ms-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 80;
+  width: 250px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  box-shadow: var(--shadow-md);
+  padding: 8px;
+}
+
+.ms-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 7px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.ms-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.ms-list {
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.ms-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ms-item:hover {
+  background: var(--bg);
+}
+
+.ms-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: #fff;
+}
+
+.ms-item.on .ms-check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.ms-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-empty {
+  padding: 10px 6px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.ms-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ms-foot span {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* ---------- sortable table headers ---------- */
+.data-table th .th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.data-table th.num .th-sort {
+  justify-content: flex-end;
+}
+
+.data-table th .th-sort:hover {
+  color: var(--accent);
+}
+
+.data-table th .sort-idle {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.data-table th:hover .sort-idle {
+  opacity: 0.6;
+}
+
+.data-table th.sorted {
+  color: var(--accent);
+}
+
+/* ---------- per-column table filters ---------- */
+.data-table th {
+  position: relative;
+}
+
+.th-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.th-filter {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--faint);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.data-table th:hover .th-filter,
+.th-filter.on,
+.data-table th.menu-open .th-filter {
+  opacity: 1;
+}
+
+.th-filter:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.th-filter.on {
+  color: var(--accent);
+}
+
+.th-filter.on::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.th-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 90;
+  width: 210px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  text-align: left;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.th-pop-head {
+  font-size: 11px;
+  color: var(--faint);
+  margin-bottom: 4px;
+}
+
+.th-pop-list {
+  max-height: 190px;
+  overflow-y: auto;
+  margin: 0 -4px;
+}
+
+.th-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.th-pop-item:hover {
+  background: var(--bg);
+}
+
+.th-pop-item.on {
+  color: var(--accent);
+}
+
+.th-pop-body {
+  padding: 2px 0;
+}
+
+.th-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.th-pop-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.table-empty {
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.table-filter-reset {
+  position: sticky;
+  left: 0;
+  margin: 8px 10px 10px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.table-filter-reset:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ---------- pointer drag for repositioning ---------- */
+body.chart-drag,
+body.chart-drag * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+.card.move-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.card.move-target::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(37, 99, 235, 0.04);
+  pointer-events: none;
+}
+
+/* ---------- templates modal ---------- */
+.tpl-save {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tpl-save .text-input {
+  flex: 1;
+}
+
+.tpl-flash {
+  margin: 8px 0 2px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.tpl-list {
+  margin-top: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.tpl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tpl-row:last-child {
+  border-bottom: 0;
+}
+
+.tpl-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.tpl-row-main strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tpl-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tpl-empty {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.tpl-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tpl-foot .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---------- field chips: show every column ---------- */
+.chip-row {
+  max-height: 132px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.chip-row .chip {
+  flex: 0 0 auto;
+}

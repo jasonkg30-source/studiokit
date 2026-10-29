@@ -290,6 +290,7 @@ export type Action =
   | { type: "deleteChart"; id: string }
   | { type: "duplicateChart"; id: string }
   | { type: "selectChart"; id: string | null }
+  | { type: "moveChart"; id: string; beforeId: string | null }
   | { type: "addPage" }
   | { type: "selectPage"; id: string }
   | { type: "renamePage"; id: string; name: string }
@@ -346,6 +347,23 @@ export function reducer(state: UIState, action: Action): UIState {
         report: {
           ...state.report,
           pages: state.report.pages.map((p) => (p.id === page.id ? { ...p, charts: p.charts.filter((c) => c.id !== action.id) } : p)),
+        },
+      };
+    }
+    case "moveChart": {
+      const page = currentPage(state.report);
+      const charts = [...page.charts];
+      const from = charts.findIndex((c) => c.id === action.id);
+      if (from < 0) return state;
+      const [moved] = charts.splice(from, 1);
+      const to = action.beforeId ? charts.findIndex((c) => c.id === action.beforeId) : -1;
+      if (to >= 0) charts.splice(to, 0, moved);
+      else charts.push(moved);
+      return {
+        ...state,
+        report: {
+          ...state.report,
+          pages: state.report.pages.map((p) => (p.id === page.id ? { ...p, charts } : p)),
         },
       };
     }

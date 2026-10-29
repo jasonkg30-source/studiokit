@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { decompressFromEncodedURIComponent } from "lz-string";
 import {
   ChevronDown,
   Check,
-  Download,
+  Bookmark,
   Eye,
   Filter,
   Layers,
@@ -14,14 +14,17 @@ import {
   Pencil,
   GripVertical,
   Sheet,
+  LayoutTemplate,
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
 import LeftPanel from "./components/LeftPanel";
+import MultiSelect from "./components/MultiSelect";
+import TemplateModal from "./components/TemplateModal";
+import { saveTemplate, type SavedTemplate } from "./templates";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource } from "./data";
-import { downloadReport } from "./save";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
 import type { Chart, DataSource, Report } from "./types";
 
@@ -99,6 +102,7 @@ export default function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const { report, source, selectedChartId, viewMode } = state;
   const [saved, setSaved] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const page = currentPage(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
 
@@ -142,7 +146,7 @@ export default function App() {
   const dimensionValues = useMemo(() => {
     if (!source) return [] as { field: string; values: string[] }[];
     return source.fields
-      .filter((f) => f.type === "string")
+      .filter((f) => f.type === "string" || f.type === "date")
       .map((f) => ({
         field: f.name,
         values: Array.from(new Set(source.rows.map((r) => String(r[f.name] ?? "")))).sort().slice(0, 200),
@@ -152,9 +156,10 @@ export default function App() {
   /** Fields a filter can be built on: categorical text plus numeric measures. */
   const filterFields = useMemo(() => {
     if (!source) return [] as { name: string; kind: "text" | "number" }[];
-    return source.fields
-      .filter((f) => f.type === "string" || f.type === "number")
-      .map((f) => ({ name: f.name, kind: f.type === "number" ? "number" as const : "text" as const }));
+    return source.fields.map((f) => ({
+      name: f.name,
+      kind: f.type === "number" ? ("number" as const) : ("text" as const),
+    }));
   }, [source]);
 
   const loadTemplate = (kind: "marketing" | "order") => {
@@ -227,13 +232,16 @@ export default function App() {
               <button
                 className="btn ghost"
                 onClick={() => {
-                  downloadReport(report, source);
+                  saveTemplate(report.title, report, source);
                   setSaved(true);
                   setTimeout(() => setSaved(false), 1800);
                 }}
-                title="Download this dashboard as a file you can reopen or send"
+                title="Save this dashboard in your templates"
               >
-                {saved ? <Check size={14} /> : <Download size={14} />} {saved ? "Saved" : "Save"}
+                {saved ? <Check size={14} /> : <Bookmark size={14} />} {saved ? "Saved" : "Save"}
+              </button>
+              <button className="btn ghost" onClick={() => setShowTemplates(true)} title="Open saved templates">
+                <LayoutTemplate size={14} /> Templates
               </button>
               <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showData: true } })}>
                 <Layers size={14} /> Data
@@ -320,22 +328,16 @@ export default function App() {
                       />
                     </div>
                   ) : (
-                    <select
-                      className="select slim"
-                      value={f.values[0] ?? ""}
-                      onChange={(e) => {
+                    <MultiSelect
+                      options={values}
+                      selected={f.values}
+                      placeholder="All"
+                      onChange={(nextValues) => {
                         const next = [...report.filters];
-                        next[i] = { ...f, values: e.target.value ? [e.target.value] : [] };
+                        next[i] = { ...f, values: nextValues };
                         dispatch({ type: "setReport", report: { ...report, filters: next } });
                       }}
-                    >
-                      <option value="">All</option>
-                      {values.map((v) => (
-                        <option key={v} value={v}>
-                          {v}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   )}
                   <button
                     className="icon-btn"
@@ -399,6 +401,8 @@ export default function App() {
                   viewMode={viewMode}
                   onSelect={() => dispatch({ type: "selectChart", id: c.id })}
                   onDelete={() => dispatch({ type: "deleteChart", id: c.id })}
+                  onResize={(w, h) => dispatch({ type: "updateChart", id: c.id, patch: { width: w, height: h } })}
+                  onMoveChart={(draggedId, beforeId) => dispatch({ type: "moveChart", id: draggedId, beforeId })}
                   onDropField={(name) => {
                     dispatch({ type: "selectChart", id: c.id });
                     const field = source?.fields.find((f) => f.name === name);
@@ -421,6 +425,18 @@ export default function App() {
 
         {!viewMode && selected && <RightPanel chart={selected} source={source} dispatch={dispatch} />}
       </div>
+
+      {showTemplates && (
+        <TemplateModal
+          report={report}
+          source={source}
+          onClose={() => setShowTemplates(false)}
+          onApply={(tpl: SavedTemplate) => {
+            dispatch({ type: "setSource", source: tpl.source, report: tpl.report });
+            setShowTemplates(false);
+          }}
+        />
+      )}
 
       {state.showData && !viewMode && (
         <DataModal
@@ -490,17 +506,113 @@ interface CardProps {
   viewMode: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  onResize: (width: number, height: number) => void;
+  onMoveChart: (draggedId: string, beforeId: string | null) => void;
   onDropField: (name: string) => void;
 }
 
-function ChartCard({ chart, rows, selected, viewMode, onSelect, onDelete, onDropField }: CardProps) {
+function ChartCard({ chart, rows, selected, viewMode, onSelect, onDelete, onResize, onMoveChart, onDropField }: CardProps) {
   const [over, setOver] = useState(false);
+  const [draft, setDraft] = useState<{ w: number; h: number } | null>(null);
+  const card = useRef<HTMLElement>(null);
+
+  /** Drag the header: drop on another card to take its place, on empty space to go last. */
+  const startMove = (e: React.PointerEvent) => {
+    if (viewMode) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    const cardEl = card.current;
+    if (!cardEl) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let dragging = false;
+    let hovered: HTMLElement | null = null;
+
+    const clearHint = () => {
+      if (hovered) hovered.classList.remove("move-target");
+      hovered = null;
+    };
+
+    const move = (ev: PointerEvent) => {
+      if (!dragging) {
+        if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 6) return;
+        dragging = true;
+        cardEl.classList.add("moving");
+        document.body.classList.add("chart-drag");
+      }
+      const under = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const target = under?.closest(".card") as HTMLElement | null;
+      if (target !== hovered) {
+        clearHint();
+        if (target && target !== cardEl) {
+          hovered = target;
+          target.classList.add("move-target");
+        }
+      }
+    };
+
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      cardEl.classList.remove("moving");
+      document.body.classList.remove("chart-drag");
+      if (!dragging) return;
+      const targetId = hovered?.dataset.chartId ?? null;
+      clearHint();
+      if (targetId !== chart.id) onMoveChart(chart.id, targetId);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  /** Drag the bottom-right grip: width snaps to grid columns, height to 10px. */
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const grid = card.current?.parentElement;
+    if (!grid) return;
+    const cs = getComputedStyle(grid);
+    const gap = parseFloat(cs.columnGap || "14") || 14;
+    const padL = parseFloat(cs.paddingLeft || "0") || 0;
+    const padR = parseFloat(cs.paddingRight || "0") || 0;
+    const inner = grid.clientWidth - padL - padR;
+    const colW = (inner - gap * 11) / 12;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const w0 = chart.width;
+    const h0 = chart.height;
+    let latest = { w: w0, h: h0 };
+
+    const move = (ev: PointerEvent) => {
+      const dCols = Math.round((ev.clientX - startX) / (colW + gap));
+      const w = Math.min(12, Math.max(1, w0 + dCols));
+      const h = Math.min(1600, Math.max(120, Math.round((h0 + ev.clientY - startY) / 10) * 10));
+      latest = { w, h };
+      setDraft(latest);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDraft(null);
+      if (latest.w !== w0 || latest.h !== h0) onResize(latest.w, latest.h);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   return (
     <section
-      className={`card ${selected ? "selected" : ""} ${over ? "drop" : ""}`}
-      style={{ gridColumn: `span ${chart.width}`, height: chart.height }}
+      ref={card}
+      data-chart-id={chart.id}
+      className={`card ${selected ? "selected" : ""} ${over ? "drop" : ""} ${draft ? "resizing" : ""}`}
+      style={{ gridColumn: `span ${draft?.w ?? chart.width}`, height: draft?.h ?? chart.height }}
       onClick={onSelect}
       onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("application/x-chart-id")) {
+          e.preventDefault();
+          setOver(true);
+          return;
+        }
         e.preventDefault();
         setOver(true);
       }}
@@ -512,7 +624,11 @@ function ChartCard({ chart, rows, selected, viewMode, onSelect, onDelete, onDrop
         if (name) onDropField(name);
       }}
     >
-      <header className="card-head">
+      <header
+        className="card-head"
+        onPointerDown={startMove}
+        title={viewMode ? undefined : "Drag to move this chart"}
+      >
         <div className="card-title">
           <Pencil size={12} className="card-edit-icon" />
           <h3>{chart.title}</h3>
@@ -534,6 +650,21 @@ function ChartCard({ chart, rows, selected, viewMode, onSelect, onDelete, onDrop
       <div className="card-body" style={{ height: chart.type === "scorecard" ? "auto" : "calc(100% - 38px)" }}>
         <ChartRenderer chart={chart} rows={rows} />
       </div>
+      {!viewMode && (
+        <span
+          className="chart-resize"
+          onPointerDown={startResize}
+          onClick={(e) => e.stopPropagation()}
+          title="Drag to resize"
+          role="separator"
+          aria-label="Resize chart"
+        />
+      )}
+      {draft && (
+        <span className="chart-resize-badge">
+          {draft.w}/12 · {draft.h}px
+        </span>
+      )}
     </section>
   );
 }

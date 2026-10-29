@@ -334,7 +334,22 @@ export function adaptToOrderSchema(input: DataSource): OrderMapping {
     }
   }
 
-  const fields: Field[] = ORDER_SCHEMA.filter((t) => matched[t.name]).map((t) => ({ name: t.name, type: t.type }));
+  // Keep every column the file has, then add schema-named aliases the charts expect.
+  const fields: Field[] = input.fields.map((f) => ({ ...f }));
+  const aliases: { name: string; from: string; type: FieldType }[] = [];
+  for (const target of ORDER_SCHEMA) {
+    const header = matched[target.name];
+    if (!header) continue;
+    if (fields.some((f) => f.name === target.name)) continue;
+    aliases.push({ name: target.name, from: header, type: target.type });
+    fields.push({ name: target.name, type: target.type });
+  }
+  if (matched["Order Date"] && !fields.some((f) => f.name === "Order Month")) {
+    fields.push({ name: "Order Month", type: "string" });
+  }
+  if (matched["Order Month"] && !fields.some((f) => f.name === "Order Date")) {
+    fields.push({ name: "Order Date", type: "date" });
+  }
   const missing = ORDER_SCHEMA.filter((t) => !matched[t.name]).map((t) => t.name);
 
   const monthFromDate = (value: string | number | null): string => {
@@ -351,10 +366,13 @@ export function adaptToOrderSchema(input: DataSource): OrderMapping {
 
   const rows: Row[] = input.rows.map((row) => {
     const out: Row = {};
-    for (const field of fields) {
-      const header = matched[field.name];
-      const value = row[header];
+    for (const field of input.fields) {
+      const value = row[field.name];
       out[field.name] = field.type === "number" ? coerce(value, "number") : String(value ?? "");
+    }
+    for (const alias of aliases) {
+      const value = row[alias.from];
+      out[alias.name] = alias.type === "number" ? coerce(value, "number") : String(value ?? "");
     }
     if (fields.some((f) => f.name === "Order Month") && !out["Order Month"]) {
       out["Order Month"] = monthFromDate(matched["Order Date"] ? row[matched["Order Date"]] : null);

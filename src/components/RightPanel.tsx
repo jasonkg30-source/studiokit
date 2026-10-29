@@ -27,15 +27,17 @@ interface Props {
 export default function RightPanel({ chart, source, dispatch }: Props) {
   const update = (patch: Partial<Chart>) => dispatch({ type: "updateChart", id: chart.id, patch });
   const fields = source?.fields ?? [];
-  const dimensions = fields.filter((f) => f.type !== "number");
-  const numerics = fields.filter((f) => f.type === "number");
+  // Every column can be a dimension; numeric ones just sort first among metrics.
+  const dimensions = fields;
+  const numerics = [...fields].sort((a, b) => Number(b.type === "number") - Number(a.type === "number"));
 
   const addDimension = (name: string) => {
     if (name && !chart.dimensions.includes(name)) update({ dimensions: [...chart.dimensions, name] });
   };
   const addMetric = (name: string) => {
-    if (name && !chart.metrics.some((m) => m.field === name && m.agg === "sum")) {
-      update({ metrics: [...chart.metrics, { field: name, agg: "sum" }] });
+    if (name && !chart.metrics.some((m) => m.field === name)) {
+      const numeric = fields.find((f) => f.name === name)?.type === "number";
+      update({ metrics: [...chart.metrics, { field: name, agg: numeric ? "sum" : "count" }] });
     }
   };
   const canMultiDim = ["table", "hbar", "stacked", "bar"].includes(chart.type);
@@ -112,7 +114,6 @@ export default function RightPanel({ chart, source, dispatch }: Props) {
           <div className="chip-row">
             {dimensions
               .filter((f) => !chart.dimensions.includes(f.name))
-              .slice(0, 8)
               .map((f) => (
                 <button key={f.name} className="chip" onClick={() => addDimension(f.name)} disabled={!canMultiDim && chart.dimensions.length >= 1}>
                   {f.name}
@@ -129,7 +130,7 @@ export default function RightPanel({ chart, source, dispatch }: Props) {
               const next = numerics.find((f) => !chart.metrics.some((m) => m.field === f.name));
               if (next) addMetric(next.name);
             }}
-            disabled={!numerics.length}
+            disabled={!fields.length}
           >
             <Plus size={12} /> Add
           </button>
@@ -148,9 +149,9 @@ export default function RightPanel({ chart, source, dispatch }: Props) {
               {numerics.map((f) => (
                 <option key={f.name} value={f.name}>
                   {f.name}
+                  {f.type === "number" ? "" : " (text)"}
                 </option>
               ))}
-              <option value={fields[0]?.name ?? ""}>{fields[0]?.name}</option>
             </select>
             <select
               className="select agg"
@@ -176,7 +177,6 @@ export default function RightPanel({ chart, source, dispatch }: Props) {
           <div className="chip-row">
             {numerics
               .filter((f) => !chart.metrics.some((m) => m.field === f.name))
-              .slice(0, 8)
               .map((f) => (
                 <button key={f.name} className="chip" onClick={() => addMetric(f.name)}>
                   {f.name}
