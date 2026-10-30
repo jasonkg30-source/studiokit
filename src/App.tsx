@@ -8,6 +8,8 @@ import {
   Bookmark,
   Eye,
   Layers,
+  LogOut,
+  ShieldCheck,
   Plus,
   Share2,
   Trash2,
@@ -105,7 +107,13 @@ function initialState(): UIState {
   };
 }
 
-export default function App() {
+interface AppProps {
+  session?: { name: string; email: string; role: "owner" | "member" } | null;
+  onSignOut?: () => void;
+  onOpenAdmin?: () => void;
+}
+
+export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const { report, source, selectedChartId, viewMode } = state;
   const [saved, setSaved] = useState(false);
@@ -346,6 +354,23 @@ export default function App() {
           <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showShare: true } })}>
             <Share2 size={14} /> Share
           </button>
+          {session && !viewMode && (
+            <>
+              {session.role === "owner" && onOpenAdmin && (
+                <button className="btn ghost" onClick={onOpenAdmin} title="Manage who can sign in">
+                  <ShieldCheck size={14} /> Admin
+                </button>
+              )}
+              <span className="who" title={session.email}>
+                {session.name || session.email}
+              </span>
+              {onSignOut && (
+                <button className="icon-btn" onClick={onSignOut} title="Sign out">
+                  <LogOut size={15} />
+                </button>
+              )}
+            </>
+          )}
           {state.locked ? (
             <span className="locked-pill">
               <Lock size={13} /> Read-only
