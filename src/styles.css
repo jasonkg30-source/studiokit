@@ -2009,3 +2009,95 @@ body.chart-drag * {
 .th-pop-fixed .th-pop-list {
   max-height: 180px;
 }
+
+/* ---------- share mode picker ---------- */
+.share-mode {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+
+.mode-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.mode-card.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.mode-card input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.mode-card span {
+  display: grid;
+  gap: 2px;
+}
+
+.mode-card strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mode-card em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- password gate ---------- */
+.gate-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(3px);
+  padding: 24px;
+}
+
+.gate-card {
+  width: min(360px, 100%);
+  display: grid;
+  gap: 10px;
+  padding: 26px 24px 22px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  text-align: center;
+}
+
+.gate-icon {
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.gate-card h2 {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.gate-card .text-input {
+  text-align: center;
+}
+
+.gate-card .btn {
+  justify-content: center;
+}

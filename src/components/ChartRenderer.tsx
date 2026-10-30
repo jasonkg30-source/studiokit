@@ -359,7 +359,9 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
           <div className="scorecard-value" style={{ color: colors[0] }}>
             {formatNumber(value)}
           </div>
-          <div className="scorecard-label">{m.agg === "count" ? "Count" : `${m.agg.toUpperCase()} · ${m.field}`}</div>
+          <div className="scorecard-label">
+            {m.agg === "count" ? "Count" : m.agg === "count_distinct" ? `Unique · ${m.field}` : `${m.agg.toUpperCase()} · ${m.field}`}
+          </div>
         </div>
       );
     }

@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
-import { Copy, Download, FileUp, Link2, Printer, X } from "lucide-react";
+import { Copy, Download, FileUp, Link2, Lock, Printer, X } from "lucide-react";
 import { compressToEncodedURIComponent } from "lz-string";
 import type { DataSource, Report } from "../types";
 import { downloadReport, readReportFile } from "../save";
 import { createShare } from "../shortlink";
+
+const PASSWORD_MIN = 4;
 
 const MAX_ROWS = 2000;
 
@@ -34,6 +36,9 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [short, setShort] = useState<string | null>(null);
+  const [pw, setPw] = useState("");
+  const [pwMode, setPwMode] = useState(false);
+  const [shortPw, setShortPw] = useState(false);
 
   const link = useMemo(() => {
     try {
@@ -54,10 +59,16 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
 
   const makeShort = async () => {
     setError("");
+    if (pwMode && pw.trim().length < PASSWORD_MIN) {
+      setError(`Use at least ${PASSWORD_MIN} characters.`);
+      return;
+    }
     setBusy(true);
     try {
-      const { id, key } = await createShare(payloadJson);
-      setShort(`${window.location.origin}${window.location.pathname}#s=${id}&k=${key}`);
+      const { id, key } = await createShare(payloadJson, pwMode ? pw : undefined);
+      const base = `${window.location.origin}${window.location.pathname}#s=${id}`;
+      setShort(key ? `${base}&k=${key}` : base);
+      setShortPw(!key);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the link.");
     } finally {
@@ -119,9 +130,40 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
         </div>
 
         <p className="hint">
-          Short links store the dashboard encrypted with a key that stays in the link itself, so the server only ever
-          holds scrambled data. Long links keep everything in the URL and upload nothing.
+          Short links store the dashboard encrypted, so the server only ever holds scrambled data. Without a password
+          the key rides in the link itself; with a password the key is derived from it and the link stays bare.
         </p>
+
+        <div className="share-mode">
+          <label className={`mode-card ${!pwMode ? "on" : ""}`}>
+            <input type="radio" checked={!pwMode} onChange={() => setPwMode(false)} />
+            <span>
+              <strong>Anyone with the link</strong>
+              <em>Key is inside the link — 99 char URL, no typing for the team.</em>
+            </span>
+          </label>
+          <label className={`mode-card ${pwMode ? "on" : ""}`}>
+            <input type="radio" checked={pwMode} onChange={() => setPwMode(true)} />
+            <span>
+              <strong>Password</strong>
+              <em>Shortest link — the team types a shared password to open it.</em>
+            </span>
+          </label>
+        </div>
+
+        {pwMode && (
+          <div className="share-row">
+            <input
+              className="text-input"
+              type="password"
+              placeholder="Team password (min 4 characters)"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              autoComplete="new-password"
+            />
+            <span className="hint"><Lock size={12} /> never stored</span>
+          </div>
+        )}
 
         <div className="share-row">
           <input
@@ -137,11 +179,12 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
 
         <div className="share-row">
           <button className="btn ghost" onClick={makeShort} disabled={busy || !link}>
-            <Link2 size={14} /> {busy ? "Encrypting…" : short ? "Make another short link" : "Create short link"}
+            {pwMode ? <Lock size={14} /> : <Link2 size={14} />}{" "}
+            {busy ? "Encrypting…" : short ? "Make another link" : pwMode ? "Create password link" : "Create short link"}
           </button>
           {short && (
             <span className="hint">
-              {(short.length).toLocaleString()} chars · encrypted end-to-end
+              {(short.length).toLocaleString()} chars · {shortPw ? "password required" : "key in the link"}
             </span>
           )}
         </div>

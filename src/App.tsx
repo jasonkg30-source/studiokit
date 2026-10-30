@@ -24,7 +24,8 @@ import MultiSelect from "./components/MultiSelect";
 import TemplateModal from "./components/TemplateModal";
 import { saveTemplate, type SavedTemplate } from "./templates";
 import { QuotaError, readJSON, writeJSON } from "./storage";
-import { readShare } from "./shortlink";
+import { PasswordRequired, readShare, readShareWithPassword } from "./shortlink";
+import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource } from "./data";
@@ -105,6 +106,9 @@ export default function App() {
   const { report, source, selectedChartId, viewMode } = state;
   const [saved, setSaved] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [gateId, setGateId] = useState<string | null>(null);
+  const [gateError, setGateError] = useState("");
+  const [gateBusy, setGateBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // Slice click on a pie/donut narrows every other chart without changing the pie itself.
   const [focus, setFocus] = useState<{ field: string; value: string } | null>(null);
@@ -146,20 +150,43 @@ export default function App() {
     setToast("Opening shared dashboard…");
     readShare(m[1], m[2] ?? "")
       .then((payload) => {
-        if (cancelled) return;
-        const shared = payload as { r: Report; s: DataSource | null };
-        if (!shared?.r) throw new Error("This link is incomplete.");
-        dispatch({ type: "setSource", source: shared.s ?? null, report: shared.r });
-        dispatch({ type: "toggleView" });
-        setToast("Read-only shared view — edits stay local");
+        if (!cancelled) applyShared(payload);
       })
       .catch((e) => {
-        if (!cancelled) setToast(e instanceof Error && e.message ? e.message : "Could not open this link.");
+        if (cancelled) return;
+        if (e instanceof PasswordRequired) {
+          setToast(null);
+          setGateId(e.shareId);
+          return;
+        }
+        setToast(e instanceof Error && e.message ? e.message : "Could not open this link.");
       });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const applyShared = (payload: unknown) => {
+    const shared = payload as { r: Report; s: DataSource | null };
+    if (!shared?.r) throw new Error("This link is incomplete.");
+    dispatch({ type: "setSource", source: shared.s ?? null, report: shared.r });
+    dispatch({ type: "toggleView" });
+    setToast("Read-only shared view — edits stay local");
+  };
+
+  const submitPassword = async (password: string) => {
+    if (!gateId) return;
+    setGateError("");
+    setGateBusy(true);
+    try {
+      applyShared(await readShareWithPassword(gateId, password));
+      setGateId(null);
+    } catch (e) {
+      setGateError(e instanceof Error && e.message ? e.message : "Could not open this link.");
+    } finally {
+      setGateBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -513,6 +540,8 @@ export default function App() {
           }}
         />
       )}
+
+      {gateId && <PasswordGate busy={gateBusy} error={gateError} onSubmit={submitPassword} />}
 
       {toast && (
         <div className="toast" role="status">

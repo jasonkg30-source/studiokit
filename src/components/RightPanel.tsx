@@ -164,7 +164,7 @@ export default function RightPanel({ chart, source, dispatch }: Props) {
             >
               {AGGS.map((a) => (
                 <option key={a} value={a}>
-                  {a === "count_distinct" ? "distinct" : a}
+                  {a === "count_distinct" ? "unique" : a}
                 </option>
               ))}
             </select>

@@ -270,7 +270,7 @@ export const AGG_LABEL: Record<Aggregation, string> = {
   count: "COUNT",
   min: "MIN",
   max: "MAX",
-  count_distinct: "COUNT DISTINCT",
+  count_distinct: "UNIQUE",
 };
 
 /**
@@ -400,7 +400,15 @@ export function adaptToOrderSchema(input: DataSource): OrderMapping {
 
 export function aggregateValue(rows: Row[], field: string, agg: Aggregation): number {
   if (agg === "count") return rows.length;
-  if (agg === "count_distinct") return new Set(rows.map((r) => String(r[field] ?? ""))).size;
+  if (agg === "count_distinct") {
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const v = r[field];
+      if (v === null || v === undefined || v === "") continue;
+      seen.add(String(v).trim());
+    }
+    return seen.size;
+  }
   const nums = rows
     .map((r) => r[field])
     .filter((v): v is number => typeof v === "number" && !isNaN(v));
@@ -425,7 +433,22 @@ export interface ChartDatum {
 }
 
 export function metricLabel(m: { field: string; agg: Aggregation }): string {
-  return m.agg === "count" ? "COUNT" : `${AGG_LABEL[m.agg]} of ${m.field}`.replace("SUM of ", "").replace("AVG of ", "Avg ").replace("MIN of ", "Min ").replace("MAX of ", "Max ");
+  switch (m.agg) {
+    case "count":
+      return "COUNT";
+    case "count_distinct":
+      return `Unique ${m.field}`;
+    case "sum":
+      return m.field;
+    case "avg":
+      return `Avg ${m.field}`;
+    case "min":
+      return `Min ${m.field}`;
+    case "max":
+      return `Max ${m.field}`;
+    default:
+      return m.field;
+  }
 }
 
 export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
