@@ -16,6 +16,7 @@ import {
   GripVertical,
   Sheet,
   LayoutTemplate,
+  Lock,
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
@@ -69,6 +70,7 @@ function initialState(): UIState {
       showShare: false,
       showData: false,
       viewMode: true,
+      locked: true,
     };
   }
   try {
@@ -83,6 +85,7 @@ function initialState(): UIState {
           showShare: false,
           showData: false,
           viewMode: false,
+          locked: false,
         };
       }
     }
@@ -96,8 +99,9 @@ function initialState(): UIState {
     selectedChartId: null,
     showAddMenu: false,
     showShare: false,
-    showData: true,
+    showData: !/^#[sr]=/.test(window.location.hash),
     viewMode: false,
+    locked: false,
   };
 }
 
@@ -142,36 +146,11 @@ export default function App() {
     document.title = `${report.title} · StudioKit`;
   }, [report.title]);
 
-  // Short share links: #s=<doc>&k=<key> — fetched and decrypted in the browser.
-  useEffect(() => {
-    const m = window.location.hash.match(/^#s=([A-Za-z0-9]+)(?:&k=([A-Za-z0-9_-]+))?$/);
-    if (!m) return;
-    let cancelled = false;
-    setToast("Opening shared dashboard…");
-    readShare(m[1], m[2] ?? "")
-      .then((payload) => {
-        if (!cancelled) applyShared(payload);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        if (e instanceof PasswordRequired) {
-          setToast(null);
-          setGateId(e.shareId);
-          return;
-        }
-        setToast(e instanceof Error && e.message ? e.message : "Could not open this link.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const applyShared = (payload: unknown) => {
     const shared = payload as { r: Report; s: DataSource | null };
     if (!shared?.r) throw new Error("This link is incomplete.");
-    dispatch({ type: "setSource", source: shared.s ?? null, report: shared.r });
-    dispatch({ type: "toggleView" });
-    setToast("Read-only shared view — edits stay local");
+    dispatch({ type: "openShared", source: shared.s ?? null, report: shared.r });
+    setToast("Read-only — shared dashboards can't be edited");
   };
 
   const submitPassword = async (password: string) => {
@@ -187,6 +166,30 @@ export default function App() {
       setGateBusy(false);
     }
   };
+
+  // Short share links: #s=<doc>&k=<key> — fetched and decrypted in the browser.
+  useEffect(() => {
+    const open = () => {
+      const m = window.location.hash.match(/^#s=([A-Za-z0-9]+)(?:&k=([A-Za-z0-9_-]+))?$/);
+      if (!m) return;
+      setToast("Opening shared dashboard…");
+      readShare(m[1], m[2] ?? "")
+        .then(applyShared)
+        .catch((e) => {
+          if (e instanceof PasswordRequired) {
+            setToast(null);
+            setGateError("");
+            setGateId(e.shareId);
+            return;
+          }
+          setToast(e instanceof Error && e.message ? e.message : "Could not open this link.");
+        });
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -343,9 +346,15 @@ export default function App() {
           <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showShare: true } })}>
             <Share2 size={14} /> Share
           </button>
-          <button className="btn primary" onClick={() => dispatch({ type: "toggleView" })}>
-            <Eye size={14} /> {viewMode ? "Edit" : "View"}
-          </button>
+          {state.locked ? (
+            <span className="locked-pill">
+              <Lock size={13} /> Read-only
+            </span>
+          ) : (
+            <button className="btn primary" onClick={() => dispatch({ type: "toggleView" })}>
+              <Eye size={14} /> {viewMode ? "Edit" : "View"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -535,6 +544,7 @@ export default function App() {
           source={source}
           onClose={() => setShowTemplates(false)}
           onApply={(tpl: SavedTemplate) => {
+            dispatch({ type: "unlock" });
             dispatch({ type: "setSource", source: tpl.source, report: tpl.report });
             setShowTemplates(false);
           }}
@@ -549,7 +559,7 @@ export default function App() {
         </div>
       )}
 
-      {state.showData && !viewMode && (
+      {state.showData && !viewMode && !gateId && (
         <DataModal
           onClose={() => dispatch({ type: "ui", patch: { showData: false } })}
           onTemplate={(kind) => loadTemplate(kind)}

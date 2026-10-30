@@ -2101,3 +2101,16 @@ body.chart-drag * {
 .gate-card .btn {
   justify-content: center;
 }
+
+.locked-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}

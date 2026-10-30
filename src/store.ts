@@ -279,6 +279,8 @@ export interface UIState {
   showShare: boolean;
   showData: boolean;
   viewMode: boolean;
+  /** True when the dashboard came from a share link: editing is disabled entirely. */
+  locked: boolean;
 }
 
 export type Action =
@@ -297,6 +299,8 @@ export type Action =
   | { type: "deletePage"; id: string }
   | { type: "setDateRange"; range: Report["dateRange"] }
   | { type: "toggleView" }
+  | { type: "openShared"; report: Report; source: DataSource | null }
+  | { type: "unlock" }
   | { type: "ui"; patch: Partial<Pick<UIState, "showAddMenu" | "showShare" | "showData">> };
 
 export function currentPage(report: Report): ReportPage {
@@ -402,7 +406,24 @@ export function reducer(state: UIState, action: Action): UIState {
     case "setDateRange":
       return { ...state, report: { ...state.report, dateRange: action.range } };
     case "toggleView":
+      if (state.locked) return state;
       return { ...state, viewMode: !state.viewMode, selectedChartId: null, showAddMenu: false };
+
+    case "unlock":
+      return { ...state, locked: false, viewMode: false };
+
+    case "openShared":
+      return {
+        ...state,
+        report: action.report,
+        source: action.source,
+        selectedChartId: null,
+        showAddMenu: false,
+        showShare: false,
+        showData: false,
+        viewMode: true,
+        locked: true,
+      };
     case "ui":
       return { ...state, ...action.patch };
     default:
