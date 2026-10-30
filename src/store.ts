@@ -309,8 +309,16 @@ export function currentPage(report: Report): ReportPage {
 
 export function reducer(state: UIState, action: Action): UIState {
   switch (action.type) {
-    case "setReport":
+    case "setReport": {
+      if (state.locked) {
+        const shape = (r: Report) => r.filters.map((f) => f.field).join("|");
+        if (shape(action.report) !== shape(state.report) || action.report.title !== state.report.title) {
+          return state;
+        }
+      }
       return { ...state, report: action.report, selectedChartId: null };
+    }
+
     case "setSource":
       return {
         ...state,

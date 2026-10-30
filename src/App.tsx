@@ -396,6 +396,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                   <select
                     className="select slim"
                     value={f.field}
+                    disabled={state.locked}
+                    title={state.locked ? "Filters are fixed on a shared dashboard" : undefined}
                     onChange={(e) => {
                       const next = [...report.filters];
                       next[i] = { field: e.target.value, values: [] };
@@ -448,19 +450,22 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                       }}
                     />
                   )}
-                  <button
-                    className="icon-btn"
-                    onClick={() =>
-                      dispatch({ type: "setReport", report: { ...report, filters: report.filters.filter((_, idx) => idx !== i) } })
-                    }
-                  >
-                    <X size={12} />
-                  </button>
+                  {!state.locked && (
+                    <button
+                      className="icon-btn"
+                      title="Remove filter"
+                      onClick={() =>
+                        dispatch({ type: "setReport", report: { ...report, filters: report.filters.filter((_, idx) => idx !== i) } })
+                      }
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
                 </div>
               );
             })}
 
-            {!viewMode && filterFields.length > 0 && (
+            {!viewMode && !state.locked && filterFields.length > 0 && (
               <button
                 className="btn ghost slim"
                 onClick={() =>

@@ -2422,3 +2422,10 @@ body.chart-drag * {
   font-size: 12.5px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
 }
+
+.filter-group .select:disabled {
+  opacity: 1;
+  color: var(--muted);
+  background: #f8fafc;
+  cursor: default;
+}
