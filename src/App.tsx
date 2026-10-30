@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
+import { listTemplates } from "./templates";
 import LeftPanel from "./components/LeftPanel";
 import MultiSelect from "./components/MultiSelect";
 import TemplateModal from "./components/TemplateModal";
@@ -594,6 +595,31 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           onClose={() => dispatch({ type: "ui", patch: { showData: false } })}
           onTemplate={(kind) => loadTemplate(kind)}
           onConnect={(src, template) => {
+            if (template.startsWith("saved:")) {
+              const saved = listTemplates().find((t) => t.id === template.slice(6));
+              if (!saved) return "That saved template no longer exists.";
+              const names = new Set(src.fields.map((f) => f.name));
+              const usedBy = (c: Chart) => [...c.dimensions, ...c.metrics.map((m) => m.field)].filter(Boolean);
+              const pages = saved.report.pages.map((page) => ({
+                ...page,
+                charts: page.charts.filter((c) => usedBy(c).every((name) => names.has(name))),
+              }));
+              const kept = pages.reduce((n, page) => n + page.charts.length, 0);
+              if (!kept) return "That template uses columns this file doesn't have. Try “Auto” or “Blank canvas”.";
+              dispatch({
+                type: "setSource",
+                source: src,
+                report: {
+                  ...saved.report,
+                  title: saved.name,
+                  sourceId: src.id,
+                  pages,
+                  filters: saved.report.filters.filter((f) => names.has(f.field)),
+                  dateField: src.fields.find((f) => f.type === "date")?.name ?? null,
+                },
+              });
+              return null;
+            }
             const mapped = template === "none" ? null : adaptToOrderSchema(src);
             if (mapped?.usable) {
               const built = orderReport(mapped.source);

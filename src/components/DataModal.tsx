@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Database, FileSpreadsheet, Link2, Loader2, Sheet, Upload, X } from "lucide-react";
 import { parseCsv, parseWorkbook, type Spreadsheet } from "../data";
 import type { DataSource } from "../types";
+import { listTemplates } from "../templates";
 
 interface Props {
   onClose: () => void;
@@ -9,7 +10,7 @@ interface Props {
   onTemplate: (kind: "marketing" | "order") => void;
 }
 
-export type TemplateChoice = "auto" | "order" | "none";
+export type TemplateChoice = "auto" | "order" | "none" | `saved:${string}`;
 
 export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
   const [tab, setTab] = useState<"file" | "paste" | "sheets">("file");
@@ -20,6 +21,7 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
   const [dragging, setDragging] = useState(false);
   const [template, setTemplate] = useState<TemplateChoice>("auto");
   const [book, setBook] = useState<{ spreadsheet: Spreadsheet; fileName: string } | null>(null);
+  const saved = listTemplates();
 
   /** Applies the chosen template; keeps the modal open when it cannot be used. */
   const finish = (source: DataSource) => {
@@ -119,11 +121,22 @@ export default function DataModal({ onClose, onConnect, onTemplate }: Props) {
             <option value="auto">Auto — match my columns</option>
             <option value="order">Order tracker</option>
             <option value="none">Blank canvas</option>
+            {saved.length > 0 && (
+              <optgroup label="Saved templates">
+                {saved.map((tpl) => (
+                  <option key={tpl.id} value={`saved:${tpl.id}`}>
+                    {tpl.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <span className="template-pick-hint">
             {template === "none"
               ? "Columns stay as they are; you build the charts yourself."
-              : "Order tracker reads Amt, Qty, SKU, Item, Type, Customer, Region, Order Date, Status — other columns are ignored."}
+              : template.startsWith("saved:")
+                ? "Reuses your saved layout. Charts that need columns missing from this file are dropped."
+                : "Order tracker reads Amt, Qty, SKU, Item, Type, Customer, Region, Order Date, Status — other columns are ignored."}
           </span>
         </div>
 
