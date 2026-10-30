@@ -3,6 +3,7 @@ import { Copy, Download, FileUp, Link2, Printer, X } from "lucide-react";
 import { compressToEncodedURIComponent } from "lz-string";
 import type { DataSource, Report } from "../types";
 import { downloadReport, readReportFile } from "../save";
+import { createShare } from "../shortlink";
 
 const MAX_ROWS = 2000;
 
@@ -29,7 +30,10 @@ function encodePayload(report: Report, source: DataSource | null): string {
 
 export default function ShareModal({ report, source, onClose, readOnly, onImport }: Props) {
   const [copied, setCopied] = useState(false);
+  const [shortCopied, setShortCopied] = useState(false);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [short, setShort] = useState<string | null>(null);
 
   const link = useMemo(() => {
     try {
@@ -39,6 +43,43 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
       return "";
     }
   }, [report, source]);
+
+  const payloadJson = useMemo(() => {
+    const payload = {
+      r: report,
+      s: source ? { ...source, rows: source.rows.slice(0, MAX_ROWS) } : null,
+    };
+    return JSON.stringify(payload);
+  }, [report, source]);
+
+  const makeShort = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const { id, key } = await createShare(payloadJson);
+      setShort(`${window.location.origin}${window.location.pathname}#s=${id}&k=${key}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create the link.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyShort = async () => {
+    if (!short) return;
+    try {
+      await navigator.clipboard.writeText(short);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = short;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      el.remove();
+    }
+    setShortCopied(true);
+    setTimeout(() => setShortCopied(false), 1800);
+  };
 
   const truncated = (source?.rows.length ?? 0) > MAX_ROWS;
   const sizeKb = Math.round(new TextEncoder().encode(link).length / 1024);
@@ -78,15 +119,31 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
         </div>
 
         <p className="hint">
-          The link carries the dashboard and{source ? ` up to ${MAX_ROWS.toLocaleString()} rows` : " its layout"} inside the
-          URL — no account needed, and anyone who opens it gets a read-only view.
+          Short links store the dashboard encrypted with a key that stays in the link itself, so the server only ever
+          holds scrambled data. Long links keep everything in the URL and upload nothing.
         </p>
 
         <div className="share-row">
-          <input className="text-input mono" readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
-          <button className="btn primary" onClick={copy} disabled={!link}>
-            <Copy size={14} /> {copied ? "Copied" : "Copy link"}
+          <input
+            className="text-input mono"
+            readOnly
+            value={short ?? link}
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <button className="btn primary" onClick={short ? copyShort : copy} disabled={!link}>
+            <Copy size={14} /> {short ? (shortCopied ? "Copied" : "Copy link") : copied ? "Copied" : "Copy long link"}
           </button>
+        </div>
+
+        <div className="share-row">
+          <button className="btn ghost" onClick={makeShort} disabled={busy || !link}>
+            <Link2 size={14} /> {busy ? "Encrypting…" : short ? "Make another short link" : "Create short link"}
+          </button>
+          {short && (
+            <span className="hint">
+              {(short.length).toLocaleString()} chars · encrypted end-to-end
+            </span>
+          )}
         </div>
 
         <div className="share-meta">

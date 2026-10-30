@@ -24,6 +24,7 @@ import MultiSelect from "./components/MultiSelect";
 import TemplateModal from "./components/TemplateModal";
 import { saveTemplate, type SavedTemplate } from "./templates";
 import { QuotaError, readJSON, writeJSON } from "./storage";
+import { readShare } from "./shortlink";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource } from "./data";
@@ -136,6 +137,29 @@ export default function App() {
   useEffect(() => {
     document.title = `${report.title} · StudioKit`;
   }, [report.title]);
+
+  // Short share links: #s=<doc>&k=<key> — fetched and decrypted in the browser.
+  useEffect(() => {
+    const m = window.location.hash.match(/^#s=([A-Za-z0-9]+)(?:&k=([A-Za-z0-9_-]+))?$/);
+    if (!m) return;
+    let cancelled = false;
+    setToast("Opening shared dashboard…");
+    readShare(m[1], m[2] ?? "")
+      .then((payload) => {
+        if (cancelled) return;
+        const shared = payload as { r: Report; s: DataSource | null };
+        if (!shared?.r) throw new Error("This link is incomplete.");
+        dispatch({ type: "setSource", source: shared.s ?? null, report: shared.r });
+        dispatch({ type: "toggleView" });
+        setToast("Read-only shared view — edits stay local");
+      })
+      .catch((e) => {
+        if (!cancelled) setToast(e instanceof Error && e.message ? e.message : "Could not open this link.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;

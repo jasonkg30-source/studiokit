@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Shared dashboards are stored encrypted: the payload is ciphertext and the
+    // key never leaves the sharer's browser (it rides in the URL fragment).
+    match /shares/{shareId} {
+      allow read: if true;
+      allow create: if request.resource.data.p is string
+                    && request.resource.data.p.size() <= 900000;
+      allow update, delete: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
