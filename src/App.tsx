@@ -7,7 +7,6 @@ import {
   Check,
   Bookmark,
   Eye,
-  Filter,
   Layers,
   Plus,
   Share2,
@@ -106,6 +105,8 @@ export default function App() {
   const [saved, setSaved] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Slice click on a pie/donut narrows every other chart without changing the pie itself.
+  const [focus, setFocus] = useState<{ field: string; value: string } | null>(null);
   const quotaWarned = useRef(false);
   const page = currentPage(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
@@ -164,6 +165,11 @@ export default function App() {
     }
     return rows;
   }, [source, report.dateField, report.dateRange, report.filters]);
+
+  const focusRows = useMemo(() => {
+    if (!focus) return filteredRows;
+    return filteredRows.filter((r) => String(r[focus.field] ?? "") === focus.value);
+  }, [filteredRows, focus]);
 
   const dimensionValues = useMemo(() => {
     if (!source) return [] as { field: string; values: string[] }[];
@@ -297,23 +303,6 @@ export default function App() {
 
         <main className="canvas-wrap">
           <div className="filterbar">
-            <div className="filter-group">
-              <Filter size={13} />
-              <select
-                className="select slim"
-                value={report.dateRange}
-                onChange={(e) => dispatch({ type: "setDateRange", range: e.target.value as Report["dateRange"] })}
-                disabled={!report.dateField}
-                title={report.dateField ? `Date field: ${report.dateField}` : "No date field detected"}
-              >
-                <option value="all">All time</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="90d">Last 90 days</option>
-                <option value="365d">Last 365 days</option>
-              </select>
-            </div>
-
             {report.filters.map((f, i) => {
               const kind = filterFields.find((d) => d.name === f.field)?.kind ?? "text";
               const values = dimensionValues.find((d) => d.field === f.field)?.values ?? [];
@@ -401,7 +390,18 @@ export default function App() {
             )}
 
             <div className="filter-spacer" />
-            <span className="row-count">{filteredRows.length.toLocaleString()} rows in view</span>
+            {focus && (
+              <button
+                type="button"
+                className="focus-chip"
+                onClick={() => setFocus(null)}
+                title="Clear the slice selection"
+              >
+                {focus.field}: <strong>{focus.value || "(blank)"}</strong>
+                <X size={12} />
+              </button>
+            )}
+            <span className="row-count">{(focus ? focusRows : filteredRows).length.toLocaleString()} rows in view</span>
           </div>
 
           {page.charts.length === 0 ? (
@@ -431,7 +431,14 @@ export default function App() {
                 <ChartCard
                   key={c.id}
                   chart={c}
-                  rows={filteredRows}
+                  rows={c.type === "pie" || c.type === "donut" ? filteredRows : focusRows}
+                  focus={c.type === "pie" || c.type === "donut" ? focus : null}
+                  onSliceClick={(value) => {
+                    const field = c.dimensions[0];
+                    if (!field) return;
+                    setFocus((cur) => (cur && cur.field === field && cur.value === value ? null : { field, value }));
+                  }}
+                  onPatch={(patch) => dispatch({ type: "updateChart", id: c.id, patch })}
                   selected={c.id === selectedChartId}
                   viewMode={viewMode}
                   onSelect={() => dispatch({ type: "selectChart", id: c.id })}
@@ -560,6 +567,9 @@ interface CardProps {
   onResize: (width: number, height: number) => void;
   onMoveChart: (draggedId: string, beforeId: string | null) => void;
   onDropField: (name: string) => void;
+  focus?: { field: string; value: string } | null;
+  onSliceClick: (value: string) => void;
+  onPatch: (patch: Partial<Chart>) => void;
   onMove: (dir: -1 | 1) => void;
   canMoveLeft: boolean;
   canMoveRight: boolean;
@@ -575,6 +585,9 @@ function ChartCard({
   onResize,
   onMoveChart,
   onDropField,
+  focus,
+  onSliceClick,
+  onPatch,
   onMove,
   canMoveLeft,
   canMoveRight,
@@ -743,7 +756,7 @@ function ChartCard({
         {viewMode && <ChevronDown size={14} className="muted" />}
       </header>
       <div className="card-body" style={{ height: chart.type === "scorecard" ? "auto" : "calc(100% - 38px)" }}>
-        <ChartRenderer chart={chart} rows={rows} />
+        <ChartRenderer chart={chart} rows={rows} focus={focus} onSliceClick={onSliceClick} onPatch={onPatch} />
       </div>
       {!viewMode && (
         <span

@@ -25,6 +25,10 @@ import { buildSeries, formatNumber, metricLabel } from "../data";
 interface Props {
   chart: Chart;
   rows: Row[];
+  /** Active cross-filter coming from a pie/donut slice. */
+  focus?: { field: string; value: string } | null;
+  onSliceClick?: (value: string) => void;
+  onPatch?: (patch: Partial<Chart>) => void;
 }
 
 type SortState = { col: string; dir: "asc" | "desc" } | null;
@@ -36,10 +40,23 @@ interface ColFilter {
 }
 
 /** Table where every column can be sorted and filtered from its header. */
-function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; metrics: Chart["metrics"] }) {
+function SortableTable({
+  chart,
+  data,
+  metrics,
+  onPatch,
+}: {
+  chart: Chart;
+  data: Row[];
+  metrics: Chart["metrics"];
+  onPatch?: (patch: Partial<Chart>) => void;
+}) {
   const [sort, setSort] = useState<SortState>(null);
   const [filters, setFilters] = useState<Record<string, ColFilter>>({});
   const [openCol, setOpenCol] = useState<string | null>(null);
+  const [popAt, setPopAt] = useState<{ left: number; top: number } | null>(null);
+  const [dragCol, setDragCol] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<string | null>(null);
   const dims = chart.dimensions;
 
   const valueOf = (row: Row, col: string): string | number => {
@@ -47,13 +64,34 @@ function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; me
     return Number(row[col.slice(2)] ?? 0);
   };
 
-  const columns = useMemo(
-    () => [
+  const columns = useMemo(() => {
+    const base = [
       ...dims.map((d, i) => ({ col: `d:${i}`, label: d, numeric: false })),
       ...metrics.map((m) => ({ col: `m:${m.field}`, label: metricLabel(m), numeric: true })),
-    ],
-    [dims, metrics],
-  );
+    ];
+    const order = chart.columnOrder ?? [];
+    if (!order.length) return base;
+    const rank = (col: string) => {
+      const i = order.indexOf(col);
+      return i < 0 ? order.length + base.findIndex((c) => c.col === col) : i;
+    };
+    return [...base].sort((a, b) => rank(a.col) - rank(b.col));
+  }, [dims, metrics, chart.columnOrder]);
+
+  const moveColumn = (from: string, to: string) => {
+    if (!onPatch || from === to) return;
+    const order = columns.map((c) => c.col).filter((c) => c !== from);
+    const at = order.indexOf(to);
+    order.splice(at < 0 ? order.length : at, 0, from);
+    onPatch({ columnOrder: order });
+  };
+
+  const cell = (row: Row, col: string) =>
+    col.startsWith("d:") ? (
+      <>{String(row.key).split(" / ")[Number(col.slice(2))]}</>
+    ) : (
+      <>{formatNumber(Number(row[col.slice(2)] ?? 0))}</>
+    );
 
   /** Distinct values per text column, for the header filter list. */
   const distinct = useMemo(() => {
@@ -120,7 +158,7 @@ function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; me
   };
 
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" onScroll={() => openCol && setOpenCol(null)}>
       <table className="data-table">
         <thead>
           <tr>
@@ -128,7 +166,37 @@ function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; me
               const f = filters[c.col];
               const has = !!f;
               return (
-                <th key={c.col} className={`${c.numeric ? "num" : ""} ${sort?.col === c.col ? "sorted" : ""} ${openCol === c.col ? "menu-open" : ""}`}>
+                <th
+                  key={c.col}
+                  draggable={!!onPatch}
+                  onDragStart={(e) => {
+                    setDragCol(c.col);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", c.col);
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragCol || dragCol === c.col) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setOverCol(c.col);
+                  }}
+                  onDragLeave={() => setOverCol((cur) => (cur === c.col ? null : cur))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const from = dragCol ?? e.dataTransfer.getData("text/plain");
+                    setOverCol(null);
+                    setDragCol(null);
+                    if (from) moveColumn(from, c.col);
+                  }}
+                  onDragEnd={() => {
+                    setDragCol(null);
+                    setOverCol(null);
+                  }}
+                  className={`${c.numeric ? "num" : ""} ${sort?.col === c.col ? "sorted" : ""} ${openCol === c.col ? "menu-open" : ""} ${
+                    dragCol === c.col ? "dragging" : ""
+                  } ${overCol === c.col ? "drop-target" : ""}`}
+                  title={onPatch ? "Drag to reorder this column" : undefined}
+                >
                   <div className="th-row">
                     <button type="button" className="th-sort" onClick={() => toggleSort(c.col)} title={`Sort by ${c.label}`}>
                       <span>{c.label}</span>
@@ -137,7 +205,17 @@ function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; me
                     <button
                       type="button"
                       className={`th-filter ${has ? "on" : ""}`}
-                      onClick={() => setOpenCol((cur) => (cur === c.col ? null : c.col))}
+                      onClick={(e) => {
+                        if (openCol === c.col) {
+                          setOpenCol(null);
+                          return;
+                        }
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        const panelH = 300;
+                        const top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - panelH - 8));
+                        setPopAt({ left: Math.min(Math.max(8, r.left), window.innerWidth - 232), top });
+                        setOpenCol(c.col);
+                      }}
                       title={`Filter ${c.label}`}
                       aria-label={`Filter ${c.label}`}
                     >
@@ -145,62 +223,6 @@ function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; me
                     </button>
                   </div>
 
-                  {openCol === c.col && (
-                    <div className="th-pop" onClick={(e) => e.stopPropagation()}>
-                      {c.numeric ? (
-                        <div className="th-pop-body">
-                          <div className="th-pop-row">
-                            <input
-                              className="text-input slim num"
-                              type="number"
-                              placeholder="min"
-                              value={f?.min ?? ""}
-                              onChange={(e) => setFilter(c.col, { ...f, min: e.target.value })}
-                            />
-                            <span className="range-dash">–</span>
-                            <input
-                              className="text-input slim num"
-                              type="number"
-                              placeholder="max"
-                              value={f?.max ?? ""}
-                              onChange={(e) => setFilter(c.col, { ...f, max: e.target.value })}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="th-pop-head">{(distinct[c.col] ?? []).length} values</div>
-                          <div className="th-pop-list">
-                            {(distinct[c.col] ?? []).map((v) => {
-                              const on = f?.values?.includes(v) ?? false;
-                              return (
-                                <label key={v} className={`th-pop-item ${on ? "on" : ""}`}>
-                                  <input
-                                    type="checkbox"
-                                    checked={on}
-                                    onChange={() =>
-                                      setFilter(c.col, {
-                                        values: on ? (f?.values ?? []).filter((x) => x !== v) : [...(f?.values ?? []), v],
-                                      })
-                                    }
-                                  />
-                                  <span>{v || "(blank)"}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                      <div className="th-pop-foot">
-                        <button type="button" className="link-btn" onClick={() => setFilter(c.col, {})}>
-                          Clear
-                        </button>
-                        <button type="button" className="link-btn" onClick={() => setOpenCol(null)}>
-                          Done
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </th>
               );
             })}
@@ -216,18 +238,77 @@ function SortableTable({ chart, data, metrics }: { chart: Chart; data: Row[]; me
           )}
           {rows.map((row) => (
             <tr key={String(row.key)}>
-              {dims.map((d, i) => (
-                <td key={`${d}-${i}`}>{String(row.key).split(" / ")[i]}</td>
-              ))}
-              {metrics.map((m) => (
-                <td key={m.field} className="num">
-                  {formatNumber(Number(row[m.field] ?? 0))}
+              {columns.map((c) => (
+                <td key={c.col} className={c.numeric ? "num" : undefined}>
+                  {cell(row, c.col)}
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
+      {openCol && popAt && (() => {
+        const c = columns.find((x) => x.col === openCol);
+        if (!c) return null;
+        const f = filters[c.col];
+        return (
+          <div className="th-pop th-pop-fixed" style={{ left: popAt.left, top: popAt.top }} onClick={(e) => e.stopPropagation()}>
+            {c.numeric ? (
+              <div className="th-pop-body">
+                <div className="th-pop-row">
+                  <input
+                    className="text-input slim num"
+                    type="number"
+                    placeholder="min"
+                    value={f?.min ?? ""}
+                    onChange={(e) => setFilter(c.col, { ...f, min: e.target.value })}
+                  />
+                  <span className="range-dash">–</span>
+                  <input
+                    className="text-input slim num"
+                    type="number"
+                    placeholder="max"
+                    value={f?.max ?? ""}
+                    onChange={(e) => setFilter(c.col, { ...f, max: e.target.value })}
+                  />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="th-pop-head">{(distinct[c.col] ?? []).length} values</div>
+                <div className="th-pop-list">
+                  {(distinct[c.col] ?? []).map((v) => {
+                    const on = f?.values?.includes(v) ?? false;
+                    return (
+                      <label key={v} className={`th-pop-item ${on ? "on" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() =>
+                            setFilter(c.col, {
+                              values: on ? (f?.values ?? []).filter((x) => x !== v) : [...(f?.values ?? []), v],
+                            })
+                          }
+                        />
+                        <span>{v || "(blank)"}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            <div className="th-pop-foot">
+              <button type="button" className="link-btn" onClick={() => setFilter(c.col, {})}>
+                Clear
+              </button>
+              <button type="button" className="link-btn" onClick={() => setOpenCol(null)}>
+                Done
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {activeCount > 0 && (
         <button type="button" className="table-filter-reset" onClick={() => setFilters({})}>
           Clear {activeCount} column filter{activeCount > 1 ? "s" : ""}
@@ -250,7 +331,7 @@ function tooltipStyle() {
   } as const;
 }
 
-export default function ChartRenderer({ chart, rows }: Props) {
+export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatch }: Props) {
   const data = buildSeries(rows, chart);
   const metrics = chart.metrics.filter((m) => m.field);
   const colors = chart.palette?.length ? chart.palette : ["#2563eb"];
@@ -283,7 +364,7 @@ export default function ChartRenderer({ chart, rows }: Props) {
       );
     }
     case "table":
-      return <SortableTable chart={chart} data={data} metrics={metrics} />;
+      return <SortableTable chart={chart} data={data} metrics={metrics} onPatch={onPatch} />;
     case "timeseries":
     case "area":
       return (
@@ -389,7 +470,19 @@ export default function ChartRenderer({ chart, rows }: Props) {
           <PieChart>
             <Tooltip {...tooltipStyle()} formatter={(v) => formatNumber(Number(v))} />
             {chart.showLegend && (
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} payload={legendPayload} />
+              <Legend
+                iconType="circle"
+                wrapperStyle={{ fontSize: 11, cursor: onSliceClick ? "pointer" : undefined }}
+                payload={legendPayload}
+                onClick={
+                  onSliceClick
+                    ? (entry: { value?: string }) => {
+                        const value = String(entry?.value ?? "").split(" · ")[0];
+                        if (value) onSliceClick(value);
+                      }
+                    : undefined
+                }
+              />
             )}
             <Pie
               data={data}
@@ -400,11 +493,21 @@ export default function ChartRenderer({ chart, rows }: Props) {
               paddingAngle={1}
               stroke="#fff"
               strokeWidth={2}
-              isAnimationActive={ false }
+              isAnimationActive={false}
+              cursor={onSliceClick ? "pointer" : undefined}
             >
-              {data.map((_, i) => (
-                <Cell key={i} fill={colors[i % colors.length]} />
-              ))}
+              {data.map((d, i) => {
+                const dimmed = !!focus && String(d.key) !== focus.value;
+                return (
+                  <Cell
+                    key={i}
+                    fill={colors[i % colors.length]}
+                    fillOpacity={dimmed ? 0.28 : 1}
+                    style={onSliceClick ? { cursor: "pointer" } : undefined}
+                    onClick={onSliceClick ? () => onSliceClick(String(d.key)) : undefined}
+                  />
+                );
+              })}
             </Pie>
           </PieChart>
         </ResponsiveContainer>

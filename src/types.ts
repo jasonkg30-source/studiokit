@@ -49,6 +49,8 @@ export interface Chart {
   palette: string[];
   sort: "none" | "dim_asc" | "dim_desc" | "metric_desc" | "metric_asc";
   limit: number;
+  /** User-arranged table column order, keyed as "d:<index>" (dimension) or "m:<field>" (metric). */
+  columnOrder?: string[];
 }
 
 export interface Filter {
