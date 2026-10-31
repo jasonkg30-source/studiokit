@@ -20,7 +20,7 @@ import {
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
-import { buildSeries, formatNumber, metricLabel } from "../data";
+import { buildSeries, formatNumber, metricLabel, type ChartDatum } from "../data";
 
 interface Props {
   chart: Chart;
@@ -457,27 +457,61 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
       );
     case "pie":
     case "donut": {
-      const m = metrics[0];
-      const total = data.reduce((a, d) => a + Number(d[m.field] || 0), 0);
-      const legendPayload = data.map((d, i) => ({
-        id: String(d.key),
-        value: total
-          ? `${d.key} · ${Math.round((Number(d[m.field] || 0) / total) * 100)}%`
-          : String(d.key),
-        type: "circle" as const,
-        color: colors[i % colors.length],
-      }));
+      const rings = metrics.filter((m) => m.field);
+      const multi = rings.length > 1;
+      const totals = rings.map((m) => data.reduce((sum, d) => sum + Number(d[m.field] || 0), 0));
+      const colorFor = (key: string) => colors[Math.max(0, data.findIndex((d) => d.key === key)) % colors.length];
+
+      const legendPayload = multi
+        ? rings.map((m, i) => ({
+            id: m.field,
+            value: `${metricLabel(m)} · ${formatNumber(totals[i])}`,
+            type: "circle" as const,
+            color: colors[i % colors.length],
+          }))
+        : data.map((d, i) => ({
+            id: String(d.key),
+            value: totals[0] ? `${d.key} · ${Math.round((Number(d[rings[0].field] || 0) / totals[0]) * 100)}%` : String(d.key),
+            type: "circle" as const,
+            color: colors[i % colors.length],
+          }));
+
+      const tip = (props: { active?: boolean; payload?: Array<{ payload?: ChartDatum }> }) => {
+        if (!props.active || !props.payload?.length) return null;
+        const datum = props.payload[0]?.payload;
+        if (!datum) return null;
+        return (
+          <div className="chart-tip">
+            <div className="chart-tip-title">{datum.key}</div>
+            {rings.map((m, i) => {
+              const value = Number(datum[m.field] || 0);
+              const share = totals[i] ? Math.round((value / totals[i]) * 100) : 0;
+              return (
+                <div className="chart-tip-row" key={m.field + i}>
+                  <span className="chart-tip-dot" style={{ background: colorFor(datum.key) }} />
+                  <span className="chart-tip-name">{metricLabel(m)}</span>
+                  <span className="chart-tip-value">
+                    {formatNumber(value)}
+                    <em>{share}%</em>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      };
+
       return (
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Tooltip {...tooltipStyle()} formatter={(v) => formatNumber(Number(v))} />
+            <Tooltip content={tip} />
             {chart.showLegend && (
               <Legend
                 iconType="circle"
-                wrapperStyle={{ fontSize: 11, cursor: onSliceClick ? "pointer" : undefined }}
+                wrapperStyle={{ fontSize: 11, cursor: !multi && onSliceClick ? "pointer" : undefined }}
                 payload={legendPayload}
                 onClick={
-                  onSliceClick
+                  !multi && onSliceClick
                     ? (entry: { value?: string }) => {
                         const value = String(entry?.value ?? "").split(" · ")[0];
                         if (value) onSliceClick(value);
@@ -486,31 +520,48 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                 }
               />
             )}
-            <Pie
-              data={data}
-              dataKey={m.field}
-              nameKey="key"
-              innerRadius={chart.type === "donut" ? "52%" : 0}
-              outerRadius="78%"
-              paddingAngle={1}
-              stroke="#fff"
-              strokeWidth={2}
-              isAnimationActive={false}
-              cursor={onSliceClick ? "pointer" : undefined}
-            >
-              {data.map((d, i) => {
-                const dimmed = !!focus && String(d.key) !== focus.value;
-                return (
-                  <Cell
-                    key={i}
-                    fill={colors[i % colors.length]}
-                    fillOpacity={dimmed ? 0.28 : 1}
-                    style={onSliceClick ? { cursor: "pointer" } : undefined}
-                    onClick={onSliceClick ? () => onSliceClick(String(d.key)) : undefined}
-                  />
-                );
-              })}
-            </Pie>
+            {rings.map((m, idx) => {
+              const inner = multi
+                ? chart.type === "donut"
+                  ? 24 + idx * 20
+                  : idx * 20
+                : chart.type === "donut"
+                  ? 52
+                  : 0;
+              const outer = multi
+                ? chart.type === "donut"
+                  ? 44 + idx * 20
+                  : 20 + idx * 20
+                : 78;
+              return (
+                <Pie
+                  key={m.field + idx}
+                  data={data}
+                  dataKey={m.field}
+                  nameKey="key"
+                  innerRadius={`${inner}%`}
+                  outerRadius={`${outer}%`}
+                  paddingAngle={1}
+                  stroke="#fff"
+                  strokeWidth={multi ? 1 : 2}
+                  isAnimationActive={false}
+                  cursor={onSliceClick ? "pointer" : undefined}
+                >
+                  {data.map((d, i) => {
+                    const dimmed = !!focus && String(d.key) !== focus.value;
+                    return (
+                      <Cell
+                        key={i}
+                        fill={colors[i % colors.length]}
+                        fillOpacity={dimmed ? 0.28 : 1}
+                        style={onSliceClick ? { cursor: "pointer" } : undefined}
+                        onClick={onSliceClick ? () => onSliceClick(String(d.key)) : undefined}
+                      />
+                    );
+                  })}
+                </Pie>
+              );
+            })}
           </PieChart>
         </ResponsiveContainer>
       );

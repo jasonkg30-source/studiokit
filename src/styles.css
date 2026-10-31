@@ -2429,3 +2429,51 @@ body.chart-drag * {
   background: #f8fafc;
   cursor: default;
 }
+
+.chart-tip {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  padding: 8px 10px;
+  font-size: 12px;
+  min-width: 140px;
+}
+
+.chart-tip-title {
+  font-weight: 650;
+  color: var(--text);
+  margin-bottom: 5px;
+}
+
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.chart-tip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.chart-tip-name {
+  color: var(--muted);
+  flex: 1;
+  white-space: nowrap;
+}
+
+.chart-tip-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tip-value em {
+  font-style: normal;
+  color: var(--muted);
+  margin-left: 5px;
+  font-size: 11px;
+}
