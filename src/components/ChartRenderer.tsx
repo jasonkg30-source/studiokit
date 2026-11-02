@@ -20,7 +20,7 @@ import {
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
-import { buildSeries, formatNumber, metricLabel, type ChartDatum } from "../data";
+import { blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue } from "../data";
 
 interface Props {
   chart: Chart;
@@ -102,7 +102,13 @@ function SortableTable({
     const map: Record<string, string[]> = {};
     for (const c of columns) {
       if (c.numeric) continue;
-      map[c.col] = Array.from(new Set(data.map((row) => String(valueOf(row, c.col))))).sort((a, b) =>
+      const seen = new Map<string, string>();
+      for (const row of data) {
+        const label = String(valueOf(row, c.col));
+        const key = normValue(label);
+        if (!seen.has(key)) seen.set(key, label);
+      }
+      map[c.col] = Array.from(seen.values()).sort((a, b) =>
         a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
       );
     }
@@ -114,7 +120,10 @@ function SortableTable({
     let out = active.length
       ? data.filter((row) =>
           active.every(([col, f]) => {
-            if (f.values?.length) return f.values.includes(String(valueOf(row, col)));
+            if (f.values?.length) {
+              const v = normValue(valueOf(row, col));
+              return f.values.some((x) => normValue(x) === v);
+            }
             const v = Number(valueOf(row, col));
             if (!Number.isFinite(v)) return false;
             if (f.min && v < Number(f.min)) return false;
@@ -479,14 +488,23 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                 stackId={chart.type === "stacked" ? "a" : undefined}
                 maxBarSize={48}
                 isAnimationActive={false}
-                onClick={onSliceClick ? (entry: { key?: string }) => onSliceClick(String(entry?.key ?? "")) : undefined}
+                onClick={
+                  onSliceClick
+                    ? (entry: { payload?: ChartDatum }) => {
+                        const datum = entry?.payload;
+                        if (datum) onSliceClick(String(datum.dims?.[0] ?? datum.key));
+                      }
+                    : undefined
+                }
               >
                 {focus
                   ? data.map((d, di) => (
                       <Cell
                         key={di}
                         fill={colors[i % colors.length]}
-                        fillOpacity={focus.values.includes(String(d.key)) ? 1 : 0.28}
+                        fillOpacity={
+                          focus.values.some((v) => blankKey(v) === blankKey(d.dims?.[0] ?? d.key)) ? 1 : 0.28
+                        }
                         cursor={onSliceClick ? "pointer" : undefined}
                       />
                     ))
@@ -501,7 +519,8 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
       const rings = metrics.filter((m) => m.field);
       const multi = rings.length > 1;
       const totals = rings.map((m) => data.reduce((sum, d) => sum + Number(d[m.field] || 0), 0));
-      const colorFor = (key: string) => colors[Math.max(0, data.findIndex((d) => d.key === key)) % colors.length];
+      const leadOf = (d: ChartDatum) => String(d.dims?.[0] ?? d.key);
+      const colorFor = (key: string) => colors[Math.max(0, data.findIndex((d) => leadOf(d) === key)) % colors.length];
 
       const legendPayload = multi
         ? rings.map((m, i) => ({
@@ -511,8 +530,10 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
             color: colors[i % colors.length],
           }))
         : data.map((d, i) => ({
-            id: String(d.key),
-            value: totals[0] ? `${d.key} · ${Math.round((Number(d[rings[0].field] || 0) / totals[0]) * 100)}%` : String(d.key),
+            id: leadOf(d),
+            value: totals[0]
+              ? `${leadOf(d)} · ${Math.round((Number(d[rings[0].field] || 0) / totals[0]) * 100)}%`
+              : leadOf(d),
             type: "circle" as const,
             color: colors[i % colors.length],
           }));
@@ -589,14 +610,14 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                   cursor={onSliceClick ? "pointer" : undefined}
                 >
                   {data.map((d, i) => {
-                    const dimmed = !!focus && !focus.values.includes(String(d.key));
+                    const dimmed = !!focus && !focus.values.some((v) => blankKey(v) === blankKey(leadOf(d)));
                     return (
                       <Cell
                         key={i}
                         fill={colors[i % colors.length]}
                         fillOpacity={dimmed ? 0.28 : 1}
                         style={onSliceClick ? { cursor: "pointer" } : undefined}
-                        onClick={onSliceClick ? () => onSliceClick(String(d.key)) : undefined}
+                        onClick={onSliceClick ? () => onSliceClick(leadOf(d)) : undefined}
                       />
                     );
                   })}

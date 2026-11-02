@@ -32,7 +32,7 @@ import { PasswordRequired, readShare, readShareWithPassword } from "./shortlink"
 import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
-import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource } from "./data";
+import { blankKey, adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
 import type { Chart, DataSource, Report } from "./types";
 
@@ -224,7 +224,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
         continue;
       }
       if (!f.values.length) continue;
-      rows = rows.filter((r) => f.values.includes(String(r[f.field])));
+      const wanted = new Set(f.values.map(blankKey));
+      rows = rows.filter((r) => wanted.has(normValue(r[f.field])));
     }
     return rows;
   }, [source, report.dateField, report.dateRange, report.filters]);
@@ -236,8 +237,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   const focusRows = useMemo(() => {
     if (!focus) return filteredRows;
-    const wanted = new Set(focus.values);
-    return filteredRows.filter((r) => wanted.has(String(r[focus.field] ?? "")));
+    const wanted = new Set(focus.values.map(blankKey));
+    return filteredRows.filter((r) => wanted.has(normValue(r[focus.field])));
   }, [filteredRows, focus]);
 
   const dimensionValues = useMemo(() => {
@@ -246,7 +247,17 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
       .filter((f) => f.type === "string" || f.type === "date")
       .map((f) => ({
         field: f.name,
-        values: Array.from(new Set(source.rows.map((r) => String(r[f.name] ?? "")))).sort().slice(0, 200),
+        values: (() => {
+          const seen = new Map<string, string>();
+          for (const r of source.rows) {
+            const label = String(r[f.name] ?? "");
+            const key = normValue(label);
+            if (!seen.has(key)) seen.set(key, label);
+          }
+          return Array.from(seen.values())
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+            .slice(0, 200);
+        })(),
       }));
   }, [source]);
 
@@ -499,7 +510,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                     onClick={() =>
                       setFocus((cur) => {
                         if (!cur) return null;
-                        const values = cur.values.filter((v) => v !== value);
+                        const values = cur.values.filter((v) => blankKey(v) !== blankKey(value));
                         return values.length ? { ...cur, values } : null;
                       })
                     }
@@ -558,8 +569,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                           ? null
                           : { field, values: [next], chartId: c.id };
                       }
-                      const values = cur.values.includes(next)
-                        ? cur.values.filter((v) => v !== next)
+                      const exists = cur.values.some((v) => blankKey(v) === blankKey(next));
+                      const values = exists
+                        ? cur.values.filter((v) => blankKey(v) !== blankKey(next))
                         : [...cur.values, next];
                       return values.length ? { field, values, chartId: c.id } : null;
                     });

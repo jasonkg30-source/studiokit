@@ -453,25 +453,41 @@ export function metricLabel(m: { field: string; agg: Aggregation }): string {
   }
 }
 
+
+/** Case- and whitespace-insensitive key, so "Ace" and "ACE " count as one value. */
+export function normValue(v: unknown): string {
+  return String(v ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Value key used for matching, with "(blank)" folded back onto the empty string. */
+export function blankKey(v: unknown): string {
+  const n = normValue(v);
+  return n === "(blank)" ? "" : n;
+}
+
 export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
   const dims = chart.dimensions.filter(Boolean);
   const metrics = chart.metrics.filter((m) => m.field);
   if (!metrics.length) return [];
 
-  const groups = new Map<string, Row[]>();
+  const groups = new Map<string, { labels: string[]; rows: Row[] }>();
   if (!dims.length) {
-    groups.set("All", rows);
+    groups.set("all", { labels: ["All"], rows });
   } else {
     for (const row of rows) {
-      const key = dims.map((d) => String(row[d] ?? "(blank)")).join(" / ");
+      const labels = dims.map((d) => {
+        const raw = String(row[d] ?? "").trim();
+        return raw === "" ? "(blank)" : raw;
+      });
+      const key = labels.map(normValue).join("\u0000");
       const bucket = groups.get(key);
-      if (bucket) bucket.push(row);
-      else groups.set(key, [row]);
+      if (bucket) bucket.rows.push(row);
+      else groups.set(key, { labels, rows: [row] });
     }
   }
 
-  let data: ChartDatum[] = Array.from(groups.entries()).map(([key, bucket]) => {
-    const datum: ChartDatum = { key, dims: dims.map((field) => String(bucket[0][field] ?? "")) };
+  let data: ChartDatum[] = Array.from(groups.values()).map(({ labels, rows: bucket }) => {
+    const datum: ChartDatum = { key: labels.join(" / "), dims: labels };
     for (const m of metrics) datum[m.field] = round(aggregateValue(bucket, m.field, m.agg));
     return datum;
   });
