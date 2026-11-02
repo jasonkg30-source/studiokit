@@ -20,7 +20,7 @@ import {
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
-import { blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear } from "../data";
+import { blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
 
 interface Props {
   chart: Chart;
@@ -365,6 +365,11 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
 
   const yoy = chart.compareYoY && allRows ? withPreviousYear(data, chart, allRows) : null;
   const hasPrev = !!yoy?.some((d) => typeof d.__prev === "number");
+  const prevYear = (() => {
+    const p = monthParts(String(data[0]?.dims?.[0] ?? data[0]?.key ?? ""));
+    return p ? p.year - 1 : null;
+  })();
+  const prevName = prevYear ? `Last year (${prevYear})` : "Last year";
   const plot = hasPrev ? yoy! : data;
   const yoyTip = (props: { active?: boolean; label?: string | number; payload?: Array<{ payload?: ChartDatum }> }) => {
     if (!hasPrev || !props.active || !props.payload?.length) return null;
@@ -383,7 +388,7 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
           <span className="chart-tip-value">{formatNumber(current)}</span>
         </div>
         <div className="chart-tip-row">
-          <span className="chart-tip-name">Last year</span>
+          <span className="chart-tip-name">{prevName}</span>
           <span className="chart-tip-value">{formatNumber(before)}</span>
         </div>
         <div className="chart-tip-row">
@@ -456,7 +461,7 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                 <Area
                   type="monotone"
                   dataKey="__prev"
-                  name="Last year"
+                  name={prevName}
                   stroke="#94a3b8"
                   fill="#94a3b8"
                   fillOpacity={0.08}
@@ -490,7 +495,7 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                 <Line
                   type="monotone"
                   dataKey="__prev"
-                  name="Last year"
+                  name={prevName}
                   stroke="#94a3b8"
                   strokeWidth={2}
                   strokeDasharray="5 4"
@@ -540,7 +545,7 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
             <Tooltip {...(hasPrev ? { content: yoyTip } : tooltipStyle())} formatter={(v) => formatNumber(Number(v))} />
             {chart.showLegend && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
             {hasPrev && (
-              <Bar dataKey="__prev" name="Last year" fill="#cbd5e1" radius={[4, 4, 0, 0]} maxBarSize={48} isAnimationActive={false} />
+              <Bar dataKey="__prev" name={prevName} fill="#cbd5e1" radius={[4, 4, 0, 0]} maxBarSize={48} isAnimationActive={false} />
             )}
             {metrics.map((m, i) => (
               <Bar

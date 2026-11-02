@@ -34,7 +34,7 @@ import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { blankKey, adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
-import type { Chart, DataSource, Report, Row } from "./types";
+import type { Chart, DataSource, Filter, Report, Row } from "./types";
 
 const STORAGE_KEY = "studiokit.report.v1";
 
@@ -112,6 +112,36 @@ interface AppProps {
   session?: { name: string; email: string; role: "owner" | "member" } | null;
   onSignOut?: () => void;
   onOpenAdmin?: () => void;
+}
+
+
+/** Month / date style fields: the year-over-year overlay shifts these by one year. */
+const isTimeField = (field: string) =>
+  /(^|[^a-z])(month|date|year|period|quarter|week)([^a-z]|$)/i.test(field);
+
+/** Applies value + numeric-range filters; `skip` lets the YoY pass ignore the date filters. */
+function applyFilters(rows: Row[], filters: Filter[], skip?: (field: string) => boolean): Row[] {
+  let out = rows;
+  for (const f of filters) {
+    if (skip?.(f.field)) continue;
+    const lo = f.min !== undefined && f.min !== "" ? Number(f.min) : null;
+    const hi = f.max !== undefined && f.max !== "" ? Number(f.max) : null;
+    if (lo !== null || hi !== null) {
+      out = out.filter((r) => {
+        const raw = r[f.field];
+        const n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[$,%\s]/g, ""));
+        if (raw === null || raw === undefined || raw === "" || isNaN(n)) return false;
+        if (lo !== null && n < lo) return false;
+        if (hi !== null && n > hi) return false;
+        return true;
+      });
+      continue;
+    }
+    if (!f.values.length) continue;
+    const wanted = new Set(f.values.map(blankKey));
+    out = out.filter((r) => wanted.has(normValue(r[f.field])));
+  }
+  return out;
 }
 
 export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) {
@@ -208,27 +238,23 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   const filteredRows = useMemo(() => {
     if (!source) return [];
-    let rows = report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows;
-    for (const f of report.filters) {
-      const lo = f.min !== undefined && f.min !== "" ? Number(f.min) : null;
-      const hi = f.max !== undefined && f.max !== "" ? Number(f.max) : null;
-      if (lo !== null || hi !== null) {
-        rows = rows.filter((r) => {
-          const raw = r[f.field];
-          const n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[$,%\s]/g, ""));
-          if (raw === null || raw === undefined || raw === "" || isNaN(n)) return false;
-          if (lo !== null && n < lo) return false;
-          if (hi !== null && n > hi) return false;
-          return true;
-        });
-        continue;
-      }
-      if (!f.values.length) continue;
-      const wanted = new Set(f.values.map(blankKey));
-      rows = rows.filter((r) => wanted.has(normValue(r[f.field])));
+    const base = report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows;
+    return applyFilters(base, report.filters);
+  }, [source, report.dateField, report.dateRange, report.filters]);
+
+  /**
+   * Rows for the year-over-year overlay: every filter still applies except the
+   * date ones, so last year is compared on the same customers/regions/status.
+   */
+  const yoyRows = useMemo(() => {
+    if (!source) return [];
+    let rows = applyFilters(source.rows, report.filters, isTimeField);
+    if (focus && !isTimeField(focus.field)) {
+      const wanted = new Set(focus.values.map(blankKey));
+      rows = rows.filter((r) => wanted.has(normValue(r[focus.field])));
     }
     return rows;
-  }, [source, report.dateField, report.dateRange, report.filters]);
+  }, [source, report.filters, focus]);
 
   // A new dataset invalidates any slice selection made against the old one.
   useEffect(() => {
@@ -555,7 +581,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                   key={c.id}
                   chart={c}
                   rows={focus && focus.chartId !== c.id ? focusRows : filteredRows}
-                  allRows={source?.rows}
+                  allRows={yoyRows}
                   focus={focus && focus.chartId === c.id ? focus : null}
                   onSliceClick={(value, additive, explicitField) => {
                     const field = explicitField ?? c.dimensions[0];
