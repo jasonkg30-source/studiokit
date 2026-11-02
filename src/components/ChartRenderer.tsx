@@ -100,40 +100,51 @@ function SortableTable({
     );
 
   /** Distinct values per text column, for the header filter list. */
+  const activeFilters = (skip?: string) =>
+    Object.entries(filters).filter(
+      ([col, f]) => col !== skip && f && ((f.values?.length ?? 0) > 0 || f.min || f.max),
+    );
+
+  const matches = (row: ChartDatum, entries: [string, ColFilter][]) =>
+    entries.every(([col, f]) => {
+      if (f.values?.length) {
+        const v = normValue(valueOf(row, col));
+        return f.values.some((x) => normValue(x) === v);
+      }
+      const v = Number(valueOf(row, col));
+      if (!Number.isFinite(v)) return false;
+      if (f.min && v < Number(f.min)) return false;
+      if (f.max && v > Number(f.max)) return false;
+      return true;
+    });
+
   const distinct = useMemo(() => {
     const map: Record<string, string[]> = {};
     for (const c of columns) {
       if (c.numeric) continue;
+      // Each column offers the values left after the *other* column filters.
+      const others = activeFilters(c.col);
+      const base = others.length ? data.filter((row) => matches(row, others)) : data;
       const seen = new Map<string, string>();
-      for (const row of data) {
+      for (const row of base) {
         const label = String(valueOf(row, c.col));
         const key = normValue(label);
         if (!seen.has(key)) seen.set(key, label);
+      }
+      for (const value of filters[c.col]?.values ?? []) {
+        const key = normValue(value);
+        if (!seen.has(key)) seen.set(key, value);
       }
       map[c.col] = Array.from(seen.values()).sort((a, b) =>
         a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
       );
     }
     return map;
-  }, [columns, data]);
+  }, [columns, data, filters]);
 
   const rows = useMemo<ChartDatum[]>(() => {
-    const active = Object.entries(filters).filter(([, f]) => f && ((f.values?.length ?? 0) > 0 || f.min || f.max));
-    let out = active.length
-      ? data.filter((row) =>
-          active.every(([col, f]) => {
-            if (f.values?.length) {
-              const v = normValue(valueOf(row, col));
-              return f.values.some((x) => normValue(x) === v);
-            }
-            const v = Number(valueOf(row, col));
-            if (!Number.isFinite(v)) return false;
-            if (f.min && v < Number(f.min)) return false;
-            if (f.max && v > Number(f.max)) return false;
-            return true;
-          }),
-        )
-      : data;
+    const active = activeFilters();
+    let out = active.length ? data.filter((row) => matches(row, active)) : data;
     if (sort) {
       const sign = sort.dir === "asc" ? 1 : -1;
       out = [...out].sort((a, b) => {

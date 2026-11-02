@@ -314,23 +314,36 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   const dimensionValues = useMemo(() => {
     if (!source) return [] as { field: string; values: string[] }[];
+    const base = report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows;
     return source.fields
       .filter((f) => f.type === "string" || f.type === "date")
-      .map((f) => ({
-        field: f.name,
-        values: (() => {
-          const seen = new Map<string, string>();
-          for (const r of source.rows) {
-            const label = String(r[f.name] ?? "");
-            const key = normValue(label);
-            if (!seen.has(key)) seen.set(key, label);
-          }
-          return Array.from(seen.values()).sort((a, b) =>
+      .map((f) => {
+        // Options are recomputed without this filter, so picking one value hides
+        // the values the other filters have already ruled out.
+        const scoped = applyFilters(
+          base,
+          report.filters.filter((x) => x.field !== f.name),
+        );
+        const seen = new Map<string, string>();
+        for (const r of scoped) {
+          const label = String(r[f.name] ?? "");
+          const key = normValue(label);
+          if (!seen.has(key)) seen.set(key, label);
+        }
+        // Keep anything already selected reachable, even if it now yields no rows.
+        const selected = report.filters.find((x) => x.field === f.name)?.values ?? [];
+        for (const value of selected) {
+          const key = normValue(value);
+          if (!seen.has(key)) seen.set(key, value);
+        }
+        return {
+          field: f.name,
+          values: Array.from(seen.values()).sort((a, b) =>
             a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
-          );
-        })(),
-      }));
-  }, [source]);
+          ),
+        };
+      });
+  }, [source, report.filters, report.dateField, report.dateRange]);
 
   /** Fields a filter can be built on: categorical text plus numeric measures. */
   const filterFields = useMemo(() => {
