@@ -289,10 +289,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const rowsByChart = useMemo(() => {
     const map = new Map<string, Row[]>();
     for (const chart of page.charts) {
-      // A chart keeps the selection on its own first dimension visible ("dimmed"),
-      // so more values can be picked there; everything else is filtered normally.
-      const ownField = chart.dimensions[0];
-      const applying = focuses.filter((f) => f.field !== ownField);
+      // Tables list real rows, so every selection applies to them. Aggregate
+      // charts keep their own dimension unfiltered so other values stay clickable.
+      const applying = focuses.filter((f) => chart.type === "table" || !chart.dimensions.includes(f.field));
       map.set(
         chart.id,
         applying.length
