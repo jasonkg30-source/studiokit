@@ -39,7 +39,7 @@ export default function MultiSelect({ options, selected, onChange, placeholder =
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
-    return list.slice(0, 400);
+    return list;
   }, [options, query]);
 
   const toggle = (value: string) => {

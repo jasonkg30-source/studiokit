@@ -325,9 +325,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             const key = normValue(label);
             if (!seen.has(key)) seen.set(key, label);
           }
-          return Array.from(seen.values())
-            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
-            .slice(0, 200);
+          return Array.from(seen.values()).sort((a, b) =>
+            a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+          );
         })(),
       }));
   }, [source]);
