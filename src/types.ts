@@ -51,6 +51,8 @@ export interface Chart {
   limit: number;
   /** User-arranged table column order, keyed as "d:<index>" (dimension) or "m:<field>" (metric). */
   columnOrder?: string[];
+  /** Overlay the same months of the previous year using rows from before the filters. */
+  compareYoY?: boolean;
 }
 
 export interface Filter {

@@ -234,6 +234,20 @@ export default function RightPanel({ chart, source, dispatch }: Props) {
           </label>
         </div>
 
+        {(chart.type === "timeseries" || chart.type === "area" || chart.type === "bar") && chart.dimensions[0] && (
+          <label className="yoy-row" title="Overlay the same months of the previous year, read from the unfiltered data">
+            <input
+              type="checkbox"
+              checked={!!chart.compareYoY}
+              onChange={(e) => update({ compareYoY: e.target.checked })}
+            />
+            <span>
+              Compare to last year
+              <em>Dashed line from {chart.dimensions[0]} one year back — ignores the month filter.</em>
+            </span>
+          </label>
+        )}
+
         <div className="section-head">Size</div>
         <div className="two-col">
           <div>

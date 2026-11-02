@@ -34,7 +34,7 @@ import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { blankKey, adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
-import type { Chart, DataSource, Report } from "./types";
+import type { Chart, DataSource, Report, Row } from "./types";
 
 const STORAGE_KEY = "studiokit.report.v1";
 
@@ -555,6 +555,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                   key={c.id}
                   chart={c}
                   rows={focus && focus.chartId !== c.id ? focusRows : filteredRows}
+                  allRows={source?.rows}
                   focus={focus && focus.chartId === c.id ? focus : null}
                   onSliceClick={(value, additive, explicitField) => {
                     const field = explicitField ?? c.dimensions[0];
@@ -746,6 +747,7 @@ interface CardProps {
   onDropField: (name: string) => void;
   focus?: { field: string; values: string[]; chartId: string } | null;
   onSliceClick: (value: string, additive?: boolean, field?: string) => void;
+  allRows?: Row[];
   onPatch: (patch: Partial<Chart>) => void;
   onMove: (dir: -1 | 1) => void;
   canMoveLeft: boolean;
@@ -768,6 +770,7 @@ const ChartCard = memo(function ChartCard({
   onMove,
   canMoveLeft,
   canMoveRight,
+  allRows,
 }: CardProps) {
   const [over, setOver] = useState(false);
   const [draft, setDraft] = useState<{ w: number; h: number } | null>(null);
@@ -933,7 +936,14 @@ const ChartCard = memo(function ChartCard({
         {viewMode && <ChevronDown size={14} className="muted" />}
       </header>
       <div className="card-body" style={{ height: chart.type === "scorecard" ? "auto" : "calc(100% - 38px)" }}>
-        <ChartRenderer chart={chart} rows={rows} focus={focus} onSliceClick={onSliceClick} onPatch={onPatch} />
+        <ChartRenderer
+          chart={chart}
+          rows={rows}
+          focus={focus}
+          onSliceClick={onSliceClick}
+          onPatch={onPatch}
+          allRows={allRows}
+        />
       </div>
       {!viewMode && (
         <span

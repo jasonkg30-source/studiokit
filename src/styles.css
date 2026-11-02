@@ -2532,3 +2532,35 @@ body.chart-drag * {
 .picked-row.on td:first-child {
   box-shadow: inset 2px 0 0 var(--accent);
 }
+
+.yoy-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfe;
+  cursor: pointer;
+}
+
+.yoy-row input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.yoy-row span {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.yoy-row em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}

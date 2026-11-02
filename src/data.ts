@@ -465,6 +465,52 @@ export function blankKey(v: unknown): string {
   return n === "(blank)" ? "" : n;
 }
 
+/** Parses keys such as "202601", "2026-01" or "2026/01" into year + month. */
+export function monthParts(key: string): { year: number; month: number } | null {
+  const m = /^(\d{4})[-/.]?(\d{2})$/.exec(String(key).trim());
+  if (!m) return null;
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return null;
+  return { year: Number(m[1]), month };
+}
+
+/**
+ * Adds a `__prev` value per datum: the same metric for the same month one year
+ * earlier, computed from the unfiltered rows so a "2026 only" filter still works.
+ */
+export function withPreviousYear(data: ChartDatum[], chart: Chart, allRows: Row[]): ChartDatum[] {
+  const field = chart.dimensions[0];
+  const metric = chart.metrics.filter((m) => m.field)[0];
+  if (!field || !metric) return data;
+
+  const parsed = data
+    .map((d) => monthParts(String(d.dims?.[0] ?? d.key)))
+    .filter((p): p is { year: number; month: number } => !!p);
+  if (!parsed.length) return data;
+
+  const year = Math.max(...parsed.map((p) => p.year));
+  const months = new Set(parsed.filter((p) => p.year === year).map((p) => p.month));
+
+  const buckets = new Map<number, Row[]>();
+  for (const row of allRows) {
+    const p = monthParts(String(row[field] ?? "").trim());
+    if (!p || p.year !== year - 1 || !months.has(p.month)) continue;
+    const bucket = buckets.get(p.month);
+    if (bucket) bucket.push(row);
+    else buckets.set(p.month, [row]);
+  }
+  if (!buckets.size) return data;
+
+  const prev = new Map<number, number>();
+  for (const [month, rows] of buckets) prev.set(month, round(aggregateValue(rows, metric.field, metric.agg)));
+
+  return data.map((datum) => {
+    const p = monthParts(String(datum.dims?.[0] ?? datum.key));
+    const value = p ? prev.get(p.month) : undefined;
+    return { ...datum, __prev: value };
+  });
+}
+
 export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
   const dims = chart.dimensions.filter(Boolean);
   const metrics = chart.metrics.filter((m) => m.field);

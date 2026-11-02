@@ -20,7 +20,7 @@ import {
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
-import { blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue } from "../data";
+import { blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear } from "../data";
 
 interface Props {
   chart: Chart;
@@ -28,6 +28,8 @@ interface Props {
   /** Active cross-filter coming from a pie/donut slice. */
   focus?: { field: string; values: string[]; chartId: string } | null;
   onSliceClick?: (value: string, additive?: boolean, field?: string) => void;
+  /** Unfiltered rows, used for the year-over-year overlay. */
+  allRows?: Row[];
   onPatch?: (patch: Partial<Chart>) => void;
 }
 
@@ -356,10 +358,44 @@ function tooltipStyle() {
   } as const;
 }
 
-export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatch }: Props) {
+export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatch, allRows }: Props) {
   const data = buildSeries(rows, chart);
   const metrics = chart.metrics.filter((m) => m.field);
   const colors = chart.palette?.length ? chart.palette : ["#2563eb"];
+
+  const yoy = chart.compareYoY && allRows ? withPreviousYear(data, chart, allRows) : null;
+  const hasPrev = !!yoy?.some((d) => typeof d.__prev === "number");
+  const plot = hasPrev ? yoy! : data;
+  const yoyTip = (props: { active?: boolean; label?: string | number; payload?: Array<{ payload?: ChartDatum }> }) => {
+    if (!hasPrev || !props.active || !props.payload?.length) return null;
+    const datum = props.payload[0]?.payload;
+    if (!datum) return null;
+    const m = metrics.filter((x) => x.field)[0];
+    if (!m) return null;
+    const current = Number(datum[m.field] ?? 0);
+    const before = Number(datum.__prev ?? 0);
+    const delta = before ? Math.round(((current - before) / before) * 1000) / 10 : null;
+    return (
+      <div className="chart-tip">
+        <div className="chart-tip-title">{String(datum.dims?.[0] ?? datum.key)}</div>
+        <div className="chart-tip-row">
+          <span className="chart-tip-name">{metricLabel(m)}</span>
+          <span className="chart-tip-value">{formatNumber(current)}</span>
+        </div>
+        <div className="chart-tip-row">
+          <span className="chart-tip-name">Last year</span>
+          <span className="chart-tip-value">{formatNumber(before)}</span>
+        </div>
+        <div className="chart-tip-row">
+          <span className="chart-tip-name">Change</span>
+          <span className="chart-tip-value" style={{ color: delta === null ? undefined : delta >= 0 ? "#15803d" : "#b91c1c" }}>
+            {delta === null ? "–" : `${delta > 0 ? "+" : ""}${delta}%`}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
 
   if (!metrics.length) {
     return <Empty hint="Add a metric to render this chart" />;
@@ -410,12 +446,25 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
       return (
         <ResponsiveContainer width="100%" height="100%">
           {chart.type === "area" ? (
-            <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -8 }}>
+            <AreaChart data={plot} margin={{ top: 8, right: 12, bottom: 0, left: -8 }}>
               {chart.showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />}
               <XAxis dataKey="key" {...axis} minTickGap={24} />
               <YAxis {...axis} tickFormatter={(v) => formatNumber(Number(v))} width={52} />
-              <Tooltip {...tooltipStyle()} formatter={(v) => formatNumber(Number(v))} />
+              <Tooltip {...(hasPrev ? { content: yoyTip } : tooltipStyle())} formatter={(v) => formatNumber(Number(v))} />
               {chart.showLegend && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
+              {hasPrev && (
+                <Area
+                  type="monotone"
+                  dataKey="__prev"
+                  name="Last year"
+                  stroke="#94a3b8"
+                  fill="#94a3b8"
+                  fillOpacity={0.08}
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  isAnimationActive={false}
+                />
+              )}
               {metrics.map((m, i) => (
                 <Area
                   key={m.field}
@@ -431,12 +480,24 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
               ))}
             </AreaChart>
           ) : (
-            <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -8 }}>
+            <LineChart data={plot} margin={{ top: 8, right: 12, bottom: 0, left: -8 }}>
               {chart.showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />}
               <XAxis dataKey="key" {...axis} minTickGap={24} />
               <YAxis {...axis} tickFormatter={(v) => formatNumber(Number(v))} width={52} />
-              <Tooltip {...tooltipStyle()} formatter={(v) => formatNumber(Number(v))} />
+              <Tooltip {...(hasPrev ? { content: yoyTip } : tooltipStyle())} formatter={(v) => formatNumber(Number(v))} />
               {chart.showLegend && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
+              {hasPrev && (
+                <Line
+                  type="monotone"
+                  dataKey="__prev"
+                  name="Last year"
+                  stroke="#94a3b8"
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              )}
               {metrics.map((m, i) => (
                 <Line
                   key={m.field}
@@ -460,7 +521,7 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
       return (
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={data}
+            data={plot}
             layout={chart.type === "hbar" ? "vertical" : "horizontal"}
             margin={{ top: 8, right: 12, bottom: 0, left: chart.type === "hbar" ? 8 : -8 }}
           >
@@ -476,8 +537,11 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                 <YAxis {...axis} tickFormatter={(v) => formatNumber(Number(v))} width={52} />
               </>
             )}
-            <Tooltip {...tooltipStyle()} formatter={(v) => formatNumber(Number(v))} />
+            <Tooltip {...(hasPrev ? { content: yoyTip } : tooltipStyle())} formatter={(v) => formatNumber(Number(v))} />
             {chart.showLegend && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
+            {hasPrev && (
+              <Bar dataKey="__prev" name="Last year" fill="#cbd5e1" radius={[4, 4, 0, 0]} maxBarSize={48} isAnimationActive={false} />
+            )}
             {metrics.map((m, i) => (
               <Bar
                 key={m.field}
