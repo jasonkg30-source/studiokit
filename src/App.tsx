@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { decompressFromEncodedURIComponent } from "lz-string";
 import {
   ArrowLeft,
@@ -124,7 +124,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const [gateBusy, setGateBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // Slice click on a pie/donut narrows every other chart without changing the pie itself.
-  const [focus, setFocus] = useState<{ field: string; value: string } | null>(null);
+  const [focus, setFocus] = useState<{ field: string; value: string; chartId: string } | null>(null);
   const quotaWarned = useRef(false);
   const page = currentPage(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
@@ -228,6 +228,11 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     }
     return rows;
   }, [source, report.dateField, report.dateRange, report.filters]);
+
+  // A new dataset invalidates any slice selection made against the old one.
+  useEffect(() => {
+    setFocus(null);
+  }, [report.sourceId]);
 
   const focusRows = useMemo(() => {
     if (!focus) return filteredRows;
@@ -522,12 +527,16 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                 <ChartCard
                   key={c.id}
                   chart={c}
-                  rows={c.type === "pie" || c.type === "donut" ? filteredRows : focusRows}
-                  focus={c.type === "pie" || c.type === "donut" ? focus : null}
+                  rows={focus && focus.chartId !== c.id ? focusRows : filteredRows}
+                  focus={focus && focus.chartId === c.id ? focus : null}
                   onSliceClick={(value) => {
                     const field = c.dimensions[0];
                     if (!field) return;
-                    setFocus((cur) => (cur && cur.field === field && cur.value === value ? null : { field, value }));
+                    setFocus((cur) =>
+                      cur && cur.chartId === c.id && cur.value === value
+                        ? null
+                        : { field, value, chartId: c.id },
+                    );
                   }}
                   onPatch={(patch) => dispatch({ type: "updateChart", id: c.id, patch })}
                   selected={c.id === selectedChartId}
@@ -605,7 +614,11 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                 charts: page.charts.filter((c) => usedBy(c).every((name) => names.has(name))),
               }));
               const kept = pages.reduce((n, page) => n + page.charts.length, 0);
-              if (!kept) return "That template uses columns this file doesn't have. Try “Auto” or “Blank canvas”.";
+              if (!kept) {
+                dispatch({ type: "setSource", source: src, report: { ...emptyReport(src), title: src.name } });
+                setToast("That template's columns aren't in this file — started a blank canvas.");
+                return null;
+              }
               dispatch({
                 type: "setSource",
                 source: src,
@@ -627,7 +640,14 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
               return null;
             }
             if (template === "order") {
-              return "This file needs at least a quantity column and an amount column (Amt / Total / Amount) to build the Order tracker. Add them, or pick “Blank canvas”.";
+              const hasCharts = report.pages.some((p) => p.charts.length > 0);
+              if (hasCharts) {
+                dispatch({ type: "setSource", source: src, report: { ...report, sourceId: src.id, filters: [] } });
+              } else {
+                dispatch({ type: "setSource", source: src, report: { ...emptyReport(src), title: src.name } });
+              }
+              setToast("No amount column found — loaded the data without the order charts.");
+              return null;
             }
             const hasCharts = report.pages.some((p) => p.charts.length > 0);
             if (hasCharts) {
@@ -694,7 +714,7 @@ interface CardProps {
   canMoveRight: boolean;
 }
 
-function ChartCard({
+const ChartCard = memo(function ChartCard({
   chart,
   rows,
   selected,
@@ -894,4 +914,17 @@ function ChartCard({
       )}
     </section>
   );
-}
+}, (a, b) => {
+  // Callbacks are recreated on every render; what matters for the chart itself
+  // is the chart definition, the rows it draws and the active slice.
+  return (
+    a.chart === b.chart &&
+    a.rows === b.rows &&
+    a.focus?.value === b.focus?.value &&
+    a.focus?.field === b.focus?.field &&
+    a.selected === b.selected &&
+    a.viewMode === b.viewMode &&
+    a.canMoveLeft === b.canMoveLeft &&
+    a.canMoveRight === b.canMoveRight
+  );
+});

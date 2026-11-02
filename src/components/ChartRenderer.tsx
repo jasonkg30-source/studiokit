@@ -450,7 +450,19 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                 stackId={chart.type === "stacked" ? "a" : undefined}
                 maxBarSize={48}
                 isAnimationActive={false}
-              />
+                onClick={onSliceClick ? (entry: { key?: string }) => onSliceClick(String(entry?.key ?? "")) : undefined}
+              >
+                {focus
+                  ? data.map((d, di) => (
+                      <Cell
+                        key={di}
+                        fill={colors[i % colors.length]}
+                        fillOpacity={String(d.key) === focus.value ? 1 : 0.28}
+                        cursor={onSliceClick ? "pointer" : undefined}
+                      />
+                    ))
+                  : null}
+              </Bar>
             ))}
           </BarChart>
         </ResponsiveContainer>
