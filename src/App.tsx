@@ -37,6 +37,9 @@ import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./
 import type { Chart, DataSource, Filter, Report, Row } from "./types";
 
 const STORAGE_KEY = "studiokit.report.v1";
+// Rows are stored apart from the layout: they only change on import, so editing
+// a chart must never re-compress a 50k-row blob.
+const SOURCE_KEY = "studiokit.source.v1";
 
 interface Persisted {
   report: Report;
@@ -80,9 +83,10 @@ function initialState(): UIState {
     const parsed = readJSON<Persisted>(STORAGE_KEY);
     if (parsed) {
       if (parsed.report?.pages?.length) {
+        const rows = readJSON<DataSource>(SOURCE_KEY) ?? parsed.source ?? null;
         return {
           report: parsed.report,
-          source: parsed.source ?? null,
+          source: rows,
           selectedChartId: null,
           showAddMenu: false,
           showShare: false,
@@ -185,25 +189,42 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   useEffect(() => {
     if (viewMode) return;
-    // Debounced: big imports would otherwise re-serialise on every keystroke.
+    // Debounced: layout edits are cheap but frequent.
     const id = window.setTimeout(() => {
       try {
-        writeJSON(STORAGE_KEY, { report, source } satisfies Persisted);
-      } catch (e) {
-        // Keep the layout even when the rows no longer fit the browser quota.
-        try {
-          writeJSON(STORAGE_KEY, { report, source: null } satisfies Persisted);
-          if (e instanceof QuotaError && !quotaWarned.current) {
-            quotaWarned.current = true;
-            setToast("Data too large to autosave — layout saved");
-          }
-        } catch {
-          setToast("Autosave failed — browser storage is full");
-        }
+        writeJSON(STORAGE_KEY, { report, source: null } satisfies Persisted);
+      } catch {
+        setToast("Autosave failed — browser storage is full");
       }
     }, 600);
     return () => window.clearTimeout(id);
-  }, [report, source, viewMode]);
+  }, [report, viewMode]);
+
+  useEffect(() => {
+    if (viewMode) return;
+    // Only when the rows themselves change (import, clear), never on a filter click.
+    const id = window.setTimeout(() => {
+      try {
+        if (!source) {
+          localStorage.removeItem(SOURCE_KEY);
+          return;
+        }
+        writeJSON(SOURCE_KEY, source);
+        quotaWarned.current = false;
+      } catch (e) {
+        try {
+          localStorage.removeItem(SOURCE_KEY);
+        } catch {
+          /* ignore */
+        }
+        if (e instanceof QuotaError && !quotaWarned.current) {
+          quotaWarned.current = true;
+          setToast("Data too large to autosave — layout saved");
+        }
+      }
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [source, viewMode]);
 
   useEffect(() => {
     document.title = `${report.title} · StudioKit`;
@@ -312,38 +333,60 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     return rows;
   }, [filteredRows, focuses]);
 
-  const dimensionValues = useMemo(() => {
-    if (!source) return [] as { field: string; values: string[] }[];
-    const base = report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows;
-    return source.fields
-      .filter((f) => f.type === "string" || f.type === "date")
-      .map((f) => {
-        // Options are recomputed without this filter, so picking one value hides
-        // the values the other filters have already ruled out.
-        const scoped = applyFilters(
-          base,
-          report.filters.filter((x) => x.field !== f.name),
-        );
-        const seen = new Map<string, string>();
-        for (const r of scoped) {
-          const label = String(r[f.name] ?? "");
-          const key = normValue(label);
-          if (!seen.has(key)) seen.set(key, label);
-        }
-        // Keep anything already selected reachable, even if it now yields no rows.
-        const selected = report.filters.find((x) => x.field === f.name)?.values ?? [];
-        for (const value of selected) {
-          const key = normValue(value);
-          if (!seen.has(key)) seen.set(key, value);
-        }
-        return {
-          field: f.name,
-          values: Array.from(seen.values()).sort((a, b) =>
-            a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
-          ),
-        };
-      });
-  }, [source, report.filters, report.dateField, report.dateRange]);
+  // Distinct values are computed once per field, then narrowed by the other
+  // filters. Without this a 50k-value column re-sorted on every click.
+  const baseRows = useMemo(
+    () => (source ? (report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows) : []),
+    [source, report.dateField, report.dateRange],
+  );
+  const baseCache = useRef<{ rows: Row[]; map: Map<string, string[]> }>({ rows: [], map: new Map() });
+  const optionCache = useRef<Map<string, string[]>>(new Map());
+
+  const baseOptionsFor = (field: string): string[] => {
+    if (!baseRows.length) return [];
+    if (baseCache.current.rows !== baseRows) baseCache.current = { rows: baseRows, map: new Map() };
+    const hit = baseCache.current.map.get(field);
+    if (hit) return hit;
+    const seen = new Map<string, string>();
+    for (const r of baseRows) {
+      const label = String(r[field] ?? "");
+      const key = normValue(label);
+      if (!seen.has(key)) seen.set(key, label);
+    }
+    const out = Array.from(seen.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+    );
+    baseCache.current.map.set(field, out);
+    return out;
+  };
+
+  const optionsFor = (field: string, selected: string[]): string[] => {
+    // Only the *other* filters matter, so picking a value here keeps this list stable.
+    const others = report.filters.filter(
+      (x) => x.field !== field && ((x.values?.length ?? 0) > 0 || x.min || x.max),
+    );
+    const sig = `${field}\u0000${others
+      .map((x) => `${x.field}:${x.values.join("\u0001")}:${x.min ?? ""}:${x.max ?? ""}`)
+      .join("\u0002")}`;
+    const cache = optionCache.current;
+    const hit = cache.get(sig);
+    if (hit) return hit;
+
+    const base = baseOptionsFor(field);
+    let out = base;
+    if (others.length) {
+      const present = new Set<string>();
+      for (const r of applyFilters(baseRows, others)) present.add(normValue(String(r[field] ?? "")));
+      out = base.filter((v) => present.has(normValue(v)));
+    }
+    // Keep anything already selected reachable, even if it now yields no rows.
+    const missing = selected.filter((v) => !out.some((x) => normValue(x) === normValue(v)));
+    if (missing.length) out = [...out, ...missing];
+
+    if (cache.size > 40) cache.clear();
+    cache.set(sig, out);
+    return out;
+  };
 
   /** Fields a filter can be built on: categorical text plus numeric measures. */
   const filterFields = useMemo(() => {
@@ -492,7 +535,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           <div className="filterbar">
             {report.filters.map((f, i) => {
               const kind = filterFields.find((d) => d.name === f.field)?.kind ?? "text";
-              const values = dimensionValues.find((d) => d.field === f.field)?.values ?? [];
+
               return (
                 <div className="filter-group" key={i}>
                   <select
@@ -542,7 +585,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                     </div>
                   ) : (
                     <MultiSelect
-                      options={values}
+                      getOptions={() => optionsFor(f.field, f.values)}
                       selected={f.values}
                       placeholder="All"
                       onChange={(nextValues) => {

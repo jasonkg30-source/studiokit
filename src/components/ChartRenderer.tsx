@@ -17,7 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
 import { blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
@@ -60,6 +60,9 @@ function SortableTable({
   const [sort, setSort] = useState<SortState>(null);
   const [filters, setFilters] = useState<Record<string, ColFilter>>({});
   const [openCol, setOpenCol] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewH, setViewH] = useState(420);
   const [popAt, setPopAt] = useState<{ left: number; top: number } | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
@@ -142,6 +145,17 @@ function SortableTable({
     return map;
   }, [columns, data, filters]);
 
+  // Long tables only paint the rows on screen; a spacer keeps the scrollbar honest.
+  const ROW_H = 32;
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const sync = () => setViewH(el.clientHeight || 420);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const rows = useMemo<ChartDatum[]>(() => {
     const active = activeFilters();
     let out = active.length ? data.filter((row) => matches(row, active)) : data;
@@ -158,6 +172,13 @@ function SortableTable({
     }
     return out;
   }, [data, filters, sort]);
+
+  const buffer = 6;
+  const first = Math.max(0, Math.floor(scrollTop / ROW_H) - buffer);
+  const last = Math.min(rows.length, Math.ceil((scrollTop + viewH) / ROW_H) + buffer);
+  const windowRows = rows.length > 80 ? rows.slice(first, last) : rows;
+  const padTop = rows.length > 80 ? first * ROW_H : 0;
+  const padBottom = rows.length > 80 ? Math.max(0, (rows.length - last) * ROW_H) : 0;
 
   const toggleSort = (col: string) =>
     setSort((cur) => {
@@ -184,7 +205,14 @@ function SortableTable({
   };
 
   return (
-    <div className="table-wrap" onScroll={() => openCol && setOpenCol(null)}>
+    <div
+      className="table-wrap"
+      ref={wrapRef}
+      onScroll={(e) => {
+        if (openCol) setOpenCol(null);
+        setScrollTop((e.currentTarget as HTMLElement).scrollTop);
+      }}
+    >
       <table className="data-table">
         <thead>
           <tr>
@@ -255,6 +283,11 @@ function SortableTable({
           </tr>
         </thead>
         <tbody>
+          {padTop > 0 && (
+            <tr aria-hidden="true">
+              <td colSpan={columns.length} style={{ height: padTop, padding: 0, border: 0 }} />
+            </tr>
+          )}
           {rows.length === 0 && (
             <tr>
               <td colSpan={columns.length} className="table-empty">
@@ -262,7 +295,7 @@ function SortableTable({
               </td>
             </tr>
           )}
-          {rows.map((row) => {
+          {windowRows.map((row) => {
             // Clicking a row filters by the value of the left-most column.
             const leadCol = columns[0]?.col ?? "d:0";
             const leadIdx = leadCol.startsWith("d:") ? Number(leadCol.slice(2)) : 0;
@@ -283,6 +316,11 @@ function SortableTable({
             </tr>
             );
           })}
+          {padBottom > 0 && (
+            <tr aria-hidden="true">
+              <td colSpan={columns.length} style={{ height: padBottom, padding: 0, border: 0 }} />
+            </tr>
+          )}
         </tbody>
       </table>
       {openCol && popAt && (() => {
