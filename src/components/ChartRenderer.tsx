@@ -26,8 +26,8 @@ interface Props {
   chart: Chart;
   rows: Row[];
   /** Active cross-filter coming from a pie/donut slice. */
-  focus?: { field: string; value: string } | null;
-  onSliceClick?: (value: string) => void;
+  focus?: { field: string; values: string[]; chartId: string } | null;
+  onSliceClick?: (value: string, additive?: boolean, field?: string) => void;
   onPatch?: (patch: Partial<Chart>) => void;
 }
 
@@ -45,11 +45,15 @@ function SortableTable({
   data,
   metrics,
   onPatch,
+  picked,
+  onRowPick,
 }: {
   chart: Chart;
-  data: Row[];
+  data: ChartDatum[];
   metrics: Chart["metrics"];
   onPatch?: (patch: Partial<Chart>) => void;
+  picked?: string[];
+  onRowPick?: (value: string, field: string) => void;
 }) {
   const [sort, setSort] = useState<SortState>(null);
   const [filters, setFilters] = useState<Record<string, ColFilter>>({});
@@ -59,7 +63,7 @@ function SortableTable({
   const [overCol, setOverCol] = useState<string | null>(null);
   const dims = chart.dimensions;
 
-  const valueOf = (row: Row, col: string): string | number => {
+  const valueOf = (row: ChartDatum, col: string): string | number => {
     if (col.startsWith("d:")) return String(row.key).split(" / ")[Number(col.slice(2))] ?? "";
     return Number(row[col.slice(2)] ?? 0);
   };
@@ -86,9 +90,9 @@ function SortableTable({
     onPatch({ columnOrder: order });
   };
 
-  const cell = (row: Row, col: string) =>
+  const cell = (row: ChartDatum, col: string) =>
     col.startsWith("d:") ? (
-      <>{String(row.key).split(" / ")[Number(col.slice(2))]}</>
+      <>{row.dims?.[Number(col.slice(2))] ?? String(row.key).split(" / ")[Number(col.slice(2))]}</>
     ) : (
       <>{formatNumber(Number(row[col.slice(2)] ?? 0))}</>
     );
@@ -105,7 +109,7 @@ function SortableTable({
     return map;
   }, [columns, data]);
 
-  const rows = useMemo(() => {
+  const rows = useMemo<ChartDatum[]>(() => {
     const active = Object.entries(filters).filter(([, f]) => f && ((f.values?.length ?? 0) > 0 || f.min || f.max));
     let out = active.length
       ? data.filter((row) =>
@@ -236,15 +240,27 @@ function SortableTable({
               </td>
             </tr>
           )}
-          {rows.map((row) => (
-            <tr key={String(row.key)}>
+          {rows.map((row) => {
+            // Clicking a row filters by the value of the left-most column.
+            const leadCol = columns[0]?.col ?? "d:0";
+            const leadIdx = leadCol.startsWith("d:") ? Number(leadCol.slice(2)) : 0;
+            const lead = String(row.dims?.[leadIdx] ?? String(row.key).split(" / ")[leadIdx] ?? "");
+            const leadField = chart.dimensions[leadIdx] ?? chart.dimensions[0];
+            const on = !!picked?.includes(lead);
+            return (
+            <tr
+              key={String(row.key)}
+              className={onRowPick ? `picked-row${on ? " on" : ""}` : undefined}
+              onClick={onRowPick && leadField ? () => onRowPick(lead, leadField) : undefined}
+            >
               {columns.map((c) => (
                 <td key={c.col} className={c.numeric ? "num" : undefined}>
                   {cell(row, c.col)}
                 </td>
               ))}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       {openCol && popAt && (() => {
@@ -366,7 +382,20 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
       );
     }
     case "table":
-      return <SortableTable chart={chart} data={data} metrics={metrics} onPatch={onPatch} />;
+      return (
+        <SortableTable
+          chart={chart}
+          data={data}
+          metrics={metrics}
+          onPatch={onPatch}
+          picked={focus && chart.dimensions.includes(focus.field) ? focus.values : undefined}
+          onRowPick={
+            onSliceClick && chart.dimensions[0]
+              ? (value: string, field: string) => onSliceClick(value, true, field)
+              : undefined
+          }
+        />
+      );
     case "timeseries":
     case "area":
       return (
@@ -457,7 +486,7 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                       <Cell
                         key={di}
                         fill={colors[i % colors.length]}
-                        fillOpacity={String(d.key) === focus.value ? 1 : 0.28}
+                        fillOpacity={focus.values.includes(String(d.key)) ? 1 : 0.28}
                         cursor={onSliceClick ? "pointer" : undefined}
                       />
                     ))
@@ -560,7 +589,7 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
                   cursor={onSliceClick ? "pointer" : undefined}
                 >
                   {data.map((d, i) => {
-                    const dimmed = !!focus && String(d.key) !== focus.value;
+                    const dimmed = !!focus && !focus.values.includes(String(d.key));
                     return (
                       <Cell
                         key={i}

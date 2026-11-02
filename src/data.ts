@@ -429,7 +429,9 @@ export function aggregateValue(rows: Row[], field: string, agg: Aggregation): nu
 
 export interface ChartDatum {
   key: string;
-  [metric: string]: string | number;
+  /** Raw values of chart.dimensions, in order. key is these joined by " / ". */
+  dims?: string[];
+  [metric: string]: string | number | string[] | undefined;
 }
 
 export function metricLabel(m: { field: string; agg: Aggregation }): string {
@@ -469,7 +471,7 @@ export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
   }
 
   let data: ChartDatum[] = Array.from(groups.entries()).map(([key, bucket]) => {
-    const datum: ChartDatum = { key };
+    const datum: ChartDatum = { key, dims: dims.map((field) => String(bucket[0][field] ?? "")) };
     for (const m of metrics) datum[m.field] = round(aggregateValue(bucket, m.field, m.agg));
     return datum;
   });

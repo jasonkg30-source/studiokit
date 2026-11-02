@@ -2477,3 +2477,58 @@ body.chart-drag * {
   margin-left: 5px;
   font-size: 11px;
 }
+
+/* ---------- multi-value focus chips ---------- */
+.focus-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--accent-line, #d9dcf5);
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+.focus-set-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.focus-set .focus-chip {
+  border: none;
+  background: #fff;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.focus-clear {
+  border: none;
+  background: none;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.focus-clear:hover {
+  color: var(--text);
+}
+
+/* ---------- clickable table rows ---------- */
+.picked-row {
+  cursor: pointer;
+}
+
+.picked-row:hover td {
+  background: #f8fafc;
+}
+
+.picked-row.on td {
+  background: var(--accent-soft);
+}
+
+.picked-row.on td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
