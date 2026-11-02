@@ -26,7 +26,7 @@ interface Props {
   chart: Chart;
   rows: Row[];
   /** Active cross-filter coming from a pie/donut slice. */
-  focus?: { field: string; values: string[]; chartId: string } | null;
+  focus?: { field: string; values: string[] } | null;
   onSliceClick?: (value: string, additive?: boolean, field?: string) => void;
   /** Unfiltered rows, used for the year-over-year overlay. */
   allRows?: Row[];

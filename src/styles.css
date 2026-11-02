@@ -2564,3 +2564,18 @@ body.chart-drag * {
   font-size: 11px;
   line-height: 1.35;
 }
+
+.focus-clear-all {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 9px;
+}
+
+.focus-clear-all:hover {
+  color: var(--text);
+  border-color: #cbd5e1;
+}

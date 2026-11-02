@@ -154,7 +154,31 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const [gateBusy, setGateBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // Slice click on a pie/donut narrows every other chart without changing the pie itself.
-  const [focus, setFocus] = useState<{ field: string; values: string[]; chartId: string } | null>(null);
+  const [focuses, setFocuses] = useState<{ field: string; values: string[] }[]>([]);
+
+  /** Adds/removes one value in a field's selection; additive keeps the rest. */
+  const pickValue = (field: string, value: string, additive?: boolean) => {
+    setFocuses((prev) => {
+      const index = prev.findIndex((f) => f.field === field);
+      const current = index >= 0 ? prev[index] : null;
+      if (!current) return [...prev, { field, values: [value] }];
+
+      if (!additive) {
+        const same = current.values.length === 1 && blankKey(current.values[0]) === blankKey(value);
+        if (same) return prev.filter((_, i) => i !== index);
+        return prev.map((f, i) => (i === index ? { field, values: [value] } : f));
+      }
+
+      const exists = current.values.some((v) => blankKey(v) === blankKey(value));
+      const values = exists
+        ? current.values.filter((v) => blankKey(v) !== blankKey(value))
+        : [...current.values, value];
+      if (!values.length) return prev.filter((_, i) => i !== index);
+      return prev.map((f, i) => (i === index ? { field, values } : f));
+    });
+  };
+
+  const focusGroup = (field: string) => focuses.find((f) => f.field === field) ?? null;
   const quotaWarned = useRef(false);
   const page = currentPage(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
@@ -249,23 +273,42 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const yoyRows = useMemo(() => {
     if (!source) return [];
     let rows = applyFilters(source.rows, report.filters, isTimeField);
-    if (focus && !isTimeField(focus.field)) {
-      const wanted = new Set(focus.values.map(blankKey));
-      rows = rows.filter((r) => wanted.has(normValue(r[focus.field])));
+    for (const f of focuses) {
+      if (isTimeField(f.field)) continue;
+      const wanted = new Set(f.values.map(blankKey));
+      rows = rows.filter((r) => wanted.has(normValue(r[f.field])));
     }
     return rows;
-  }, [source, report.filters, focus]);
+  }, [source, report.filters, focuses]);
 
   // A new dataset invalidates any slice selection made against the old one.
   useEffect(() => {
-    setFocus(null);
+    setFocuses([]);
   }, [report.sourceId]);
 
-  const focusRows = useMemo(() => {
-    if (!focus) return filteredRows;
-    const wanted = new Set(focus.values.map(blankKey));
-    return filteredRows.filter((r) => wanted.has(normValue(r[focus.field])));
-  }, [filteredRows, focus]);
+  const rowsByChart = useMemo(() => {
+    const map = new Map<string, Row[]>();
+    for (const chart of page.charts) {
+      const applying = focuses.filter((f) => !chart.dimensions.includes(f.field));
+      map.set(
+        chart.id,
+        applying.length
+          ? filteredRows.filter((r) =>
+              applying.every((f) => f.values.some((v) => blankKey(v) === blankKey(r[f.field]))),
+            )
+          : filteredRows,
+      );
+    }
+    return map;
+  }, [page.charts, focuses, filteredRows]);
+
+  const visibleRows = useMemo(() => {
+    let rows = filteredRows;
+    for (const f of focuses) {
+      rows = rows.filter((r) => f.values.some((v) => blankKey(v) === blankKey(r[f.field])));
+    }
+    return rows;
+  }, [filteredRows, focuses]);
 
   const dimensionValues = useMemo(() => {
     if (!source) return [] as { field: string; values: string[] }[];
@@ -524,33 +567,37 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             )}
 
             <div className="filter-spacer" />
-            {focus && focus.values.length > 0 && (
-              <span className="focus-set">
-                <span className="focus-set-label">{focus.field}:</span>
-                {focus.values.map((value) => (
+            {focuses.map((group) => (
+              <span className="focus-set" key={group.field}>
+                <span className="focus-set-label">{group.field}:</span>
+                {group.values.map((value) => (
                   <button
                     key={value}
                     type="button"
                     className="focus-chip"
                     title="Remove this value"
-                    onClick={() =>
-                      setFocus((cur) => {
-                        if (!cur) return null;
-                        const values = cur.values.filter((v) => blankKey(v) !== blankKey(value));
-                        return values.length ? { ...cur, values } : null;
-                      })
-                    }
+                    onClick={() => pickValue(group.field, value, true)}
                   >
                     <strong>{value || "(blank)"}</strong>
                     <X size={11} />
                   </button>
                 ))}
-                <button type="button" className="focus-clear" title="Clear the selection" onClick={() => setFocus(null)}>
+                <button
+                  type="button"
+                  className="focus-clear"
+                  title="Clear this field"
+                  onClick={() => setFocuses((prev) => prev.filter((f) => f.field !== group.field))}
+                >
                   Clear
                 </button>
               </span>
+            ))}
+            {focuses.length > 1 && (
+              <button type="button" className="focus-clear-all" onClick={() => setFocuses([])}>
+                Clear all
+              </button>
             )}
-            <span className="row-count">{(focus ? focusRows : filteredRows).length.toLocaleString()} rows in view</span>
+            <span className="row-count">{visibleRows.length.toLocaleString()} rows in view</span>
           </div>
 
           {page.charts.length === 0 ? (
@@ -580,28 +627,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                 <ChartCard
                   key={c.id}
                   chart={c}
-                  rows={focus && focus.chartId !== c.id ? focusRows : filteredRows}
+                  rows={rowsByChart.get(c.id) ?? filteredRows}
                   allRows={yoyRows}
-                  focus={focus && focus.chartId === c.id ? focus : null}
+                  focus={focusGroup(c.dimensions[0] ?? "")}
                   onSliceClick={(value, additive, explicitField) => {
                     const field = explicitField ?? c.dimensions[0];
                     if (!field) return;
-                    const next = value === "(blank)" ? "" : value;
-                    setFocus((cur) => {
-                      if (!cur || cur.chartId !== c.id || cur.field !== field) {
-                        return { field, values: [next], chartId: c.id };
-                      }
-                      if (!additive) {
-                        return cur.values.length === 1 && cur.values[0] === next
-                          ? null
-                          : { field, values: [next], chartId: c.id };
-                      }
-                      const exists = cur.values.some((v) => blankKey(v) === blankKey(next));
-                      const values = exists
-                        ? cur.values.filter((v) => blankKey(v) !== blankKey(next))
-                        : [...cur.values, next];
-                      return values.length ? { field, values, chartId: c.id } : null;
-                    });
+                    pickValue(field, value === "(blank)" ? "" : value, additive);
                   }}
                   onPatch={(patch) => dispatch({ type: "updateChart", id: c.id, patch })}
                   selected={c.id === selectedChartId}
@@ -771,7 +803,7 @@ interface CardProps {
   onResize: (width: number, height: number) => void;
   onMoveChart: (draggedId: string, beforeId: string | null) => void;
   onDropField: (name: string) => void;
-  focus?: { field: string; values: string[]; chartId: string } | null;
+  focus?: { field: string; values: string[] } | null;
   onSliceClick: (value: string, additive?: boolean, field?: string) => void;
   allRows?: Row[];
   onPatch: (patch: Partial<Chart>) => void;
