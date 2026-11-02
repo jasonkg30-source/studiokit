@@ -2579,3 +2579,11 @@ body.chart-drag * {
   color: var(--text);
   border-color: #cbd5e1;
 }
+
+.picked-row.dim td {
+  opacity: 0.42;
+}
+
+.picked-row.dim:hover td {
+  opacity: 0.75;
+}

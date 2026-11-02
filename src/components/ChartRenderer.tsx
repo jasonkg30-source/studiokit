@@ -257,11 +257,11 @@ function SortableTable({
             const leadIdx = leadCol.startsWith("d:") ? Number(leadCol.slice(2)) : 0;
             const lead = String(row.dims?.[leadIdx] ?? String(row.key).split(" / ")[leadIdx] ?? "");
             const leadField = chart.dimensions[leadIdx] ?? chart.dimensions[0];
-            const on = !!picked?.includes(lead);
+            const on = !!picked?.some((v) => blankKey(v) === blankKey(lead));
             return (
             <tr
               key={String(row.key)}
-              className={onRowPick ? `picked-row${on ? " on" : ""}` : undefined}
+              className={onRowPick ? `picked-row${picked?.length ? (on ? " on" : " dim") : ""}` : undefined}
               onClick={onRowPick && leadField ? () => onRowPick(lead, leadField) : undefined}
             >
               {columns.map((c) => (
