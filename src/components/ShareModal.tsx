@@ -78,6 +78,25 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
     }
   };
 
+  const [copiedBoth, setCopiedBoth] = useState(false);
+
+  const copyLinkAndPassword = async () => {
+    if (!short) return;
+    const text = `${short}\nPassword: ${pw}`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      el.remove();
+    }
+    setCopiedBoth(true);
+    setTimeout(() => setCopiedBoth(false), 1800);
+  };
+
   const copyShort = async () => {
     if (!short) return;
     try {
@@ -201,6 +220,21 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
             </span>
           )}
         </div>
+
+        {shortPw && (
+          <div className="share-pw">
+            <p>
+              This link opens nothing without the password. Send both — receivers see a password screen and stop there
+              otherwise.
+            </p>
+            <div className="share-row">
+              <code className="mono">{pw}</code>
+              <button className="btn primary" onClick={copyLinkAndPassword}>
+                <Copy size={14} /> {copiedBoth ? "Copied" : "Copy link + password"}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="share-meta">
           <span className={`pill ${sizeKb > 8 ? "warn" : ""}`}>

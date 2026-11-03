@@ -2588,3 +2588,27 @@ body.chart-drag * {
   color: var(--text);
   border-color: #cbd5e1;
 }
+
+/* A password share is worthless on its own, so it gets its own callout. */
+.share-pw {
+  margin: 10px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 10px;
+}
+
+.share-pw p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #92400e;
+}
+
+.share-pw code {
+  flex: 1;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+}

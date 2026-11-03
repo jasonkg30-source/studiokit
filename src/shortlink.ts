@@ -25,6 +25,14 @@ const fromB64Url = (text: string): Uint8Array<ArrayBuffer> => {
   return bytes;
 };
 
+/** In-app browsers (Instagram, some KakaoTalk builds) expose no WebCrypto and would fail silently. */
+function requireCrypto(): SubtleCrypto {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("Open this link in Safari or Chrome — this in-app browser can't decrypt shared dashboards.");
+  }
+  return globalThis.crypto.subtle;
+}
+
 async function randomKey(): Promise<CryptoKey> {
   return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
 }
@@ -54,8 +62,9 @@ async function sealWith(json: string, key: CryptoKey): Promise<string> {
 }
 
 async function openWith(cipher: string, key: CryptoKey): Promise<unknown> {
+  const subtle = requireCrypto();
   const blob = fromB64Url(cipher);
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: blob.slice(0, 12) }, key, blob.slice(12));
+  const plain = await subtle.decrypt({ name: "AES-GCM", iv: blob.slice(0, 12) }, key, blob.slice(12));
   const text = new TextDecoder().decode(plain);
   return JSON.parse(decompressFromEncodedURIComponent(text) ?? text);
 }
