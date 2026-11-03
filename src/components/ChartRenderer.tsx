@@ -20,7 +20,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
-import { blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
+import { aggregateValue, blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
 
 interface Props {
   chart: Chart;
@@ -468,7 +468,9 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
   switch (chart.type) {
     case "scorecard": {
       const m = metrics[0];
-      const value = Number(data[0][m.field] ?? 0);
+      // A scorecard is one number for the whole selection: dimensions only shape
+      // other chart types, never slice the card down to its first group.
+      const value = aggregateValue(rows, m.field, m.agg);
       return (
         <div className="scorecard">
           <div className="scorecard-value" style={{ color: colors[0] }}>
