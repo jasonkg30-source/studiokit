@@ -4,8 +4,11 @@ import AdminPage from "./components/AdminPage";
 import LoginPage from "./components/LoginPage";
 import { clearSession, getSession, refreshSession, type Session } from "./auth";
 
-/** Share links must keep working for people without an account. */
-const isShareLink = () => /^#s=/.test(window.location.hash);
+/**
+ * Share links must keep working for people without an account. Long links carry
+ * the payload in `#r=`; short links point at a stored copy with `#s=`.
+ */
+const isShareLink = () => /^#(s|r)=/.test(window.location.hash);
 
 export default function AppShell() {
   const [session, setSession] = useState<Session | null>(() => (isShareLink() ? null : getSession()));

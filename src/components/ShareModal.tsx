@@ -8,6 +8,8 @@ import { createShare } from "../shortlink";
 const PASSWORD_MIN = 4;
 
 const MAX_ROWS = 2000;
+/** Firestore rejects documents over 1 MB; stay under it after base64 + AES overhead. */
+const SHORT_LIMIT = 900_000;
 
 interface Props {
   report: Report;
@@ -49,12 +51,12 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
     }
   }, [report, source]);
 
-  const payloadJson = useMemo(() => {
-    const payload = {
-      r: report,
-      s: source ? { ...source, rows: source.rows.slice(0, MAX_ROWS) } : null,
-    };
-    return JSON.stringify(payload);
+  // Short links are stored, not pasted into a chat, so they carry every row that fits.
+  const { payloadJson, shortComplete } = useMemo(() => {
+    const full = JSON.stringify({ r: report, s: source ? { ...source, rows: source.rows } : null });
+    if (new TextEncoder().encode(full).length <= SHORT_LIMIT) return { payloadJson: full, shortComplete: true };
+    const cut = JSON.stringify({ r: report, s: source ? { ...source, rows: source.rows.slice(0, MAX_ROWS) } : null });
+    return { payloadJson: cut, shortComplete: false };
   }, [report, source]);
 
   const makeShort = async () => {
@@ -94,6 +96,8 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
 
   const truncated = (source?.rows.length ?? 0) > MAX_ROWS;
   const sizeKb = Math.round(new TextEncoder().encode(link).length / 1024);
+  // Chat apps drop the tail of long URLs, which used to arrive as an empty dashboard.
+  const tooBig = sizeKb > 8;
 
   const copy = async () => {
     try {
@@ -172,8 +176,17 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
             value={short ?? link}
             onFocus={(e) => e.currentTarget.select()}
           />
-          <button className="btn primary" onClick={short ? copyShort : copy} disabled={!link}>
-            <Copy size={14} /> {short ? (shortCopied ? "Copied" : "Copy link") : copied ? "Copied" : "Copy long link"}
+          <button className="btn primary" onClick={short ? copyShort : copy} disabled={!link || (!short && tooBig)}>
+            <Copy size={14} />{" "}
+            {short
+              ? shortCopied
+                ? "Copied"
+                : "Copy link"
+              : tooBig
+                ? "Too long — use a short link"
+                : copied
+                  ? "Copied"
+                  : "Copy long link"}
           </button>
         </div>
 
@@ -193,8 +206,13 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
           <span className={`pill ${sizeKb > 8 ? "warn" : ""}`}>
             <Link2 size={12} /> {sizeKb.toLocaleString()} KB link
           </span>
-          {truncated && <span className="pill warn">First {MAX_ROWS.toLocaleString()} rows only</span>}
-          {sizeKb > 8 && <span className="pill warn">Chat apps cut long links — send the saved file instead</span>}
+          {truncated && <span className="pill warn">Long link: first {MAX_ROWS.toLocaleString()} rows</span>}
+          {short && (
+            <span className={`pill ${shortComplete ? "" : "warn"}`}>
+              {shortComplete ? `All ${(source?.rows.length ?? 0).toLocaleString()} rows` : `Short link: first ${MAX_ROWS.toLocaleString()} rows`}
+            </span>
+          )}
+          {tooBig && <span className="pill warn">Chat apps cut links this long — create a short link</span>}
         </div>
 
         <div className="modal-foot">

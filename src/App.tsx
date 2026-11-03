@@ -269,9 +269,21 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           setToast(e instanceof Error && e.message ? e.message : "Could not open this link.");
         });
     };
+    // A second share opened in the same tab only changes the hash, so reload the
+    // payload from it instead of leaving the previous dashboard on screen.
+    const onHash = () => {
+      const shared = decodeHash();
+      if (!shared?.report) return;
+      applyShared({ r: shared.report, s: shared.source });
+      setToast("Read-only — shared dashboards can't be edited");
+    };
     open();
     window.addEventListener("hashchange", open);
-    return () => window.removeEventListener("hashchange", open);
+    window.addEventListener("hashchange", onHash);
+    return () => {
+      window.removeEventListener("hashchange", open);
+      window.removeEventListener("hashchange", onHash);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
