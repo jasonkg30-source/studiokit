@@ -324,10 +324,11 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     for (const chart of page.charts) {
       // Tables list real rows, so every selection applies to them. Aggregate
       // charts keep their own dimension unfiltered so other values stay clickable.
-      // Tables and scorecards have nothing to click, so their own fields are no
-      // reason to skip a selection coming from elsewhere.
+      // A table is also a picker: if its own selection filtered it down to the
+      // picked rows only, there would be nothing left to pick a second value from.
+      // Its own dimensions therefore stay on screen (dimmed) and everything else filters.
       const applying = focuses.filter(
-        (f) => chart.type === "table" || chart.type === "scorecard" || !chart.dimensions.includes(f.field),
+        (f) => chart.type === "scorecard" || !chart.dimensions.includes(f.field),
       );
       map.set(
         chart.id,

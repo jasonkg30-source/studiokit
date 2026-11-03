@@ -2533,6 +2533,15 @@ body.chart-drag * {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* Still pickable while a selection is active, just clearly not part of it. */
+.picked-row.dim td {
+  opacity: 0.42;
+}
+
+.picked-row.dim:hover td {
+  opacity: 1;
+}
+
 .yoy-row {
   display: flex;
   align-items: flex-start;

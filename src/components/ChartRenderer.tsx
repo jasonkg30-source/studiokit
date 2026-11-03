@@ -305,7 +305,9 @@ function SortableTable({
             return (
             <tr
               key={String(row.key)}
-              className={onRowPick ? `picked-row${on ? " on" : ""}` : undefined}
+              className={
+                onRowPick ? `picked-row${on ? " on" : (picked?.length ?? 0) > 0 ? " dim" : ""}` : undefined
+              }
               onClick={onRowPick && leadField ? () => onRowPick(lead, leadField) : undefined}
             >
               {columns.map((c) => (
