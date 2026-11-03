@@ -805,6 +805,23 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
               });
               return null;
             }
+            // Importing into a dashboard that already has charts swaps the data only.
+            // Rebuilding from the template used to flatten every extra page into one.
+            const hasChartsNow = report.pages.some((p) => p.charts.length > 0);
+            if (hasChartsNow) {
+              const names = new Set(src.fields.map((f) => f.name));
+              dispatch({
+                type: "setSource",
+                source: src,
+                report: {
+                  ...report,
+                  sourceId: src.id,
+                  dateField: src.fields.find((f) => f.type === "date")?.name ?? null,
+                  filters: report.filters.filter((f) => names.has(f.field) && (f.values?.length || f.min || f.max)),
+                },
+              });
+              return null;
+            }
             const mapped = template === "none" ? null : adaptToOrderSchema(src);
             if (mapped?.usable) {
               const built = orderReport(mapped.source);
