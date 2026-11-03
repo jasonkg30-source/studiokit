@@ -1,9 +1,22 @@
 import { useState } from "react";
-import { ArrowRight, Loader2, Lock } from "lucide-react";
-import { signIn, type Session } from "../auth";
+import { ArrowRight, Loader2, Lock, UserPlus } from "lucide-react";
+import { signIn, signUp, type Session } from "../auth";
 
-export default function LoginPage({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
+/**
+ * Two modes share one card: signing in, or asking for an account. A new
+ * account cannot open the app until an admin approves it.
+ */
+export default function LoginPage({
+  onSignedIn,
+  bootstrap,
+}: {
+  onSignedIn: (s: Session) => void;
+  /** One-time code that turns this sign-up into the workspace owner. */
+  bootstrap?: string;
+}) {
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -14,19 +27,48 @@ export default function LoginPage({ onSignedIn }: { onSignedIn: (s: Session) => 
     setError("");
     setBusy(true);
     try {
-      onSignedIn(await signIn(email, password));
+      const session =
+        mode === "signin"
+          ? await signIn(email, password)
+          : await signUp({ email, name, password, bootstrap });
+      onSignedIn(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign in.");
       setBusy(false);
     }
   };
 
+  const switchMode = (next: "signin" | "signup") => {
+    setMode(next);
+    setError("");
+  };
+
   return (
     <div className="auth-page">
       <form className="auth-card" onSubmit={submit}>
         <div className="auth-mark">S</div>
-        <h1>Sign in to Studiokit</h1>
-        <p className="auth-sub">Dashboards for the team. Ask an admin if you need an account.</p>
+        <h1>{mode === "signin" ? "Sign in to Studiokit" : "Create an account"}</h1>
+        <p className="auth-sub">
+          {mode === "signin"
+            ? "Dashboards for the team."
+            : bootstrap
+              ? "This link sets up the workspace owner."
+              : "An admin has to approve new accounts before you can build."}
+        </p>
+
+        {mode === "signup" && (
+          <label className="auth-field">
+            <span>Name</span>
+            <input
+              type="text"
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              required
+            />
+          </label>
+        )}
 
         <label className="auth-field">
           <span>Email</span>
@@ -44,10 +86,11 @@ export default function LoginPage({ onSignedIn }: { onSignedIn: (s: Session) => 
           <span>Password</span>
           <input
             type="password"
-            autoComplete="current-password"
+            autoComplete={mode === "signin" ? "current-password" : "new-password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
+            minLength={6}
             required
           />
         </label>
@@ -55,12 +98,28 @@ export default function LoginPage({ onSignedIn }: { onSignedIn: (s: Session) => 
         {error && <div className="error-box">{error}</div>}
 
         <button className="btn primary auth-submit" type="submit" disabled={busy}>
-          {busy ? <Loader2 size={15} className="spin" /> : <Lock size={15} />}
-          {busy ? "Checking…" : "Sign in"}
+          {busy ? <Loader2 size={15} className="spin" /> : mode === "signin" ? <Lock size={15} /> : <UserPlus size={15} />}
+          {busy ? "Working…" : mode === "signin" ? "Sign in" : "Create account"}
           {!busy && <ArrowRight size={15} />}
         </button>
 
-        <div className="auth-foot">Passwords are hashed on this device before they are stored.</div>
+        <div className="auth-switch">
+          {mode === "signin" ? (
+            <>
+              Need an account?{" "}
+              <button type="button" onClick={() => switchMode("signup")}>
+                Create one
+              </button>
+            </>
+          ) : (
+            <>
+              Already approved?{" "}
+              <button type="button" onClick={() => switchMode("signin")}>
+                Sign in
+              </button>
+            </>
+          )}
+        </div>
       </form>
     </div>
   );

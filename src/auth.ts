@@ -1,227 +1,268 @@
 import cfg from "./firebase-config.json";
 
-const BASE = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/default/documents`;
-const USERS = `${BASE}/users`;
-const ITERATIONS = 310000;
-const SESSION_KEY = "studiokit.session";
-const SESSION_DAYS = 7;
+/**
+ * Accounts live in Firebase Authentication (email + password); Firestore only
+ * keeps the profile that records whether an admin has approved the person.
+ *
+ * The browser talks to the Identity Toolkit REST API directly because the app
+ * has no backend. Every privileged write is checked by Firestore rules against
+ * the caller's ID token, so approval can't be bypassed from the browser console.
+ */
+const IDENTITY = "https://identitytoolkit.googleapis.com/v1/accounts";
+const TOKEN_URL = "https://securetoken.googleapis.com/v1/token";
+const DOCS = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/default/documents`;
 
 export type Role = "owner" | "member";
 
-export interface Account {
-  id: string;
+export interface Profile {
+  uid: string;
   email: string;
   name: string;
   role: Role;
+  /** False until an admin approves the sign-up. */
   active: boolean;
   createdAt: number;
 }
 
-export interface Session {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
+export interface Session extends Profile {
+  idToken: string;
+  refreshToken: string;
+  /** Epoch ms when the ID token stops working. */
   exp: number;
 }
 
-const toB64Url = (bytes: Uint8Array) => {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-};
+export type Account = Profile;
 
-const fromB64Url = (text: string): Uint8Array<ArrayBuffer> => {
-  const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="));
-  const bytes = new Uint8Array(new ArrayBuffer(bin.length));
-  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-};
-
-async function hashPassword(password: string, salt: Uint8Array<ArrayBuffer>): Promise<string> {
-  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, [
-    "deriveBits",
-  ]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: ITERATIONS, hash: "SHA-256" },
-    base,
-    256,
-  );
-  return toB64Url(new Uint8Array(bits));
-}
+const SESSION_KEY = "studiokit.session.v2";
 
 const str = (v: string) => ({ stringValue: v });
 const bool = (v: boolean) => ({ booleanValue: v });
 const num = (v: number) => ({ integerValue: String(v) });
 
-function toAccount(name: string, f: Record<string, any>): Account {
-  return {
-    id: name.split("/").pop() ?? "",
-    email: f.email?.stringValue ?? "",
-    name: f.name?.stringValue ?? "",
-    role: (f.role?.stringValue as Role) ?? "member",
-    active: f.active?.booleanValue ?? true,
-    createdAt: Number(f.createdAt?.integerValue ?? 0),
-  };
-}
-
-export async function listAccounts(): Promise<Account[]> {
-  const res = await fetch(`${USERS}?key=${encodeURIComponent(cfg.apiKey)}&pageSize=200`);
-  if (!res.ok) throw new Error("Could not load accounts.");
-  const data = await res.json();
-  const docs: any[] = data.documents ?? [];
-  return docs
-    .map((d) => toAccount(d.name, d.fields ?? {}))
-    .sort((a, b) => a.createdAt - b.createdAt);
-}
-
-async function findByEmail(email: string): Promise<{ account: Account; salt: string; hash: string } | null> {
-  const res = await fetch(`${BASE}:runQuery?key=${encodeURIComponent(cfg.apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      structuredQuery: {
-        from: [{ collectionId: "users" }],
-        where: { fieldFilter: { field: { fieldPath: "email" }, op: "EQUAL", value: str(email.toLowerCase()) } },
-        limit: 1,
-      },
-    }),
-  });
-  if (!res.ok) throw new Error("Could not reach the account service.");
-  const rows = await res.json();
-  const doc = rows.find((r: any) => r.document)?.document;
-  if (!doc) return null;
-  return {
-    account: toAccount(doc.name, doc.fields ?? {}),
-    salt: doc.fields?.salt?.stringValue ?? "",
-    hash: doc.fields?.hash?.stringValue ?? "",
-  };
-}
-
-export async function createAccount(input: {
-  email: string;
-  name: string;
-  password: string;
-  role: Role;
-}): Promise<Account> {
-  const email = input.email.trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Enter a valid email.");
-  if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
-  if (await findByEmail(email)) throw new Error("That email already has an account.");
-
-  const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16)));
-  const hash = await hashPassword(input.password, salt);
-  const res = await fetch(`${USERS}?key=${encodeURIComponent(cfg.apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fields: {
-        email: str(email),
-        name: str(input.name.trim()),
-        role: str(input.role),
-        active: bool(true),
-        salt: str(toB64Url(salt)),
-        hash: str(hash),
-        createdAt: num(Date.now()),
-      },
-    }),
-  });
-  if (!res.ok) throw new Error("Could not create the account.");
-  const doc = await res.json();
-  return toAccount(doc.name, doc.fields);
-}
-
-export async function setPassword(id: string, password: string): Promise<void> {
-  if (password.length < 6) throw new Error("Password must be at least 6 characters.");
-  const salt = crypto.getRandomValues(new Uint8Array(new ArrayBuffer(16)));
-  const hash = await hashPassword(password, salt);
-  const res = await fetch(
-    `${USERS}/${id}?key=${encodeURIComponent(cfg.apiKey)}&updateMask.fieldPaths=salt&updateMask.fieldPaths=hash`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields: { salt: str(toB64Url(salt)), hash: str(hash) } }),
-    },
-  );
-  if (!res.ok) throw new Error("Could not update the password.");
-}
-
-export async function patchAccount(id: string, patch: Record<string, string | boolean>): Promise<void> {
-  const fields: Record<string, unknown> = {};
-  const masks: string[] = [];
-  for (const [k, v] of Object.entries(patch)) {
-    fields[k] = typeof v === "boolean" ? bool(v) : str(v);
-    masks.push(`updateMask.fieldPaths=${k}`);
+function readError(payload: any): string {
+  const code: string = payload?.error?.message ?? "";
+  if (code === "EMAIL_EXISTS") return "That email already has an account.";
+  if (["EMAIL_NOT_FOUND", "INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD"].includes(code)) {
+    return "Wrong email or password.";
   }
-  const res = await fetch(`${USERS}/${id}?key=${encodeURIComponent(cfg.apiKey)}&${masks.join("&")}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fields }),
-  });
-  if (!res.ok) throw new Error("Could not update the account.");
+  if (code.startsWith("WEAK_PASSWORD")) return "Password must be at least 6 characters.";
+  if (code === "TOO_MANY_ATTEMPTS_TRY_LATER") return "Too many attempts. Try again in a few minutes.";
+  if (code === "USER_DISABLED") return "This account has been turned off.";
+  if (code === "CONFIGURATION_NOT_FOUND") return "Sign-in is not switched on for this project yet.";
+  if (code === "PERMISSION_DENIED" || code === "MISSING_PERMISSION") return "Your account can't do that yet.";
+  return code ? code.replace(/_/g, " ").toLowerCase() : "Something went wrong.";
 }
 
-export async function deleteAccount(id: string): Promise<void> {
-  const res = await fetch(`${USERS}/${id}?key=${encodeURIComponent(cfg.apiKey)}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Could not delete the account.");
+async function post(url: string, body: unknown): Promise<any> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(readError(data));
+  return data;
+}
+
+function toProfile(uid: string, fields: Record<string, any>): Profile {
+  return {
+    uid,
+    email: fields.email?.stringValue ?? "",
+    name: fields.name?.stringValue ?? "",
+    role: (fields.role?.stringValue as Role) ?? "member",
+    active: fields.active?.booleanValue ?? false,
+    createdAt: Number(fields.createdAt?.integerValue ?? 0),
+  };
+}
+
+/** Reads one profile with the caller's ID token; the rules decide who may. */
+export async function loadProfile(uid: string, idToken: string): Promise<Profile | null> {
+  const res = await fetch(`${DOCS}/users/${uid}`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Could not read your account.");
+  const doc = await res.json();
+  return toProfile(uid, doc.fields ?? {});
+}
+
+function sessionFrom(
+  idToken: string,
+  refreshToken: string,
+  expiresIn: string | number,
+  profile: Profile,
+): Session {
+  return { ...profile, idToken, refreshToken, exp: Date.now() + Number(expiresIn) * 1000 };
 }
 
 export function getSession(): Session | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    const s = JSON.parse(raw) as Session;
-    if (!s?.id || s.exp < Date.now()) {
-      localStorage.removeItem(SESSION_KEY);
-      return null;
-    }
-    return s;
+    const parsed = JSON.parse(raw) as Session;
+    return parsed?.uid && parsed?.refreshToken ? parsed : null;
   } catch {
     return null;
   }
 }
 
-export function saveSession(s: Session) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+export function saveSession(session: Session): void {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
-export function clearSession() {
+export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY);
 }
 
-export async function signIn(email: string, password: string): Promise<Session> {
-  const found = await findByEmail(email.trim().toLowerCase());
-  if (!found) throw new Error("No account with that email.");
-  if (!found.account.active) throw new Error("This account has been turned off.");
-  const hash = await hashPassword(password, fromB64Url(found.salt));
-  if (hash !== found.hash) throw new Error("Wrong password.");
+/**
+ * Creates the auth user and a profile that starts out blocked. The `bootstrap`
+ * code is used exactly once, to let the first account become the owner.
+ */
+export async function signUp(input: {
+  email: string;
+  name: string;
+  password: string;
+  bootstrap?: string;
+}): Promise<Session> {
+  const email = input.email.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Enter a valid email.");
+  if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
 
-  const session: Session = {
-    id: found.account.id,
-    email: found.account.email,
-    name: found.account.name,
-    role: found.account.role,
-    exp: Date.now() + SESSION_DAYS * 86400000,
+  const auth = await post(`${IDENTITY}:signUp?key=${encodeURIComponent(cfg.apiKey)}`, {
+    email,
+    password: input.password,
+    returnSecureToken: true,
+  });
+
+  const owner = Boolean(input.bootstrap);
+  const profile: Profile = {
+    uid: auth.localId,
+    email,
+    name: input.name.trim() || email,
+    role: owner ? "owner" : "member",
+    active: owner,
+    createdAt: Date.now(),
   };
+
+  const res = await fetch(`${DOCS}/users/${auth.localId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.idToken}` },
+    body: JSON.stringify({
+      fields: {
+        email: str(email),
+        name: str(profile.name),
+        role: str(profile.role),
+        active: bool(profile.active),
+        createdAt: num(profile.createdAt),
+        ...(owner ? { bootstrap: str(input.bootstrap!) } : {}),
+      },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(owner ? "That owner setup link has expired." : "Could not create your account.");
+  }
+
+  const session = sessionFrom(auth.idToken, auth.refreshToken, auth.expiresIn, profile);
   saveSession(session);
   return session;
 }
 
-/** Re-checks the account on load so a disabled user cannot keep using a cached session. */
+export async function signIn(email: string, password: string): Promise<Session> {
+  const auth = await post(`${IDENTITY}:signInWithPassword?key=${encodeURIComponent(cfg.apiKey)}`, {
+    email: email.trim().toLowerCase(),
+    password,
+    returnSecureToken: true,
+  });
+  const profile = await loadProfile(auth.localId, auth.idToken);
+  if (!profile) throw new Error("Your account has no profile yet. Ask an admin to approve you.");
+  const session = sessionFrom(auth.idToken, auth.refreshToken, auth.expiresIn, profile);
+  saveSession(session);
+  return session;
+}
+
+/** Swaps the refresh token for a fresh ID token and re-reads the profile. */
 export async function refreshSession(session: Session): Promise<Session | null> {
-  const res = await fetch(`${USERS}/${session.id}?key=${encodeURIComponent(cfg.apiKey)}`);
-  if (!res.ok) {
-    clearSession();
-    return null;
+  try {
+    const res = await fetch(`${TOKEN_URL}?key=${encodeURIComponent(cfg.apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: session.refreshToken,
+      }).toString(),
+    });
+    if (!res.ok) {
+      clearSession();
+      return null;
+    }
+    const data = await res.json();
+    const profile = await loadProfile(session.uid, data.id_token);
+    if (!profile) {
+      clearSession();
+      return null;
+    }
+    const next = sessionFrom(data.id_token, data.refresh_token, data.expires_in, profile);
+    saveSession(next);
+    return next;
+  } catch {
+    // Offline or transient: keep the cached session, the rules still reject
+    // whatever the token is no longer allowed to do.
+    return session;
   }
-  const doc = await res.json();
-  const account = toAccount(doc.name, doc.fields ?? {});
-  if (!account.active) {
-    clearSession();
-    return null;
+}
+
+async function adminFetch(session: Session, path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${DOCS}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.idToken}`,
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+
+export async function listAccounts(session: Session): Promise<Account[]> {
+  const res = await adminFetch(session, ":runQuery", {
+    method: "POST",
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: "users" }], limit: 300 } }),
+  });
+  if (!res.ok) throw new Error("Only admins can see the account list.");
+  const rows = await res.json();
+  return rows
+    .filter((r: any) => r.document)
+    .map((r: any) => toProfile(r.document.name.split("/").pop(), r.document.fields ?? {}))
+    .sort((a: Account, b: Account) => b.createdAt - a.createdAt);
+}
+
+export async function patchAccount(
+  session: Session,
+  uid: string,
+  patch: Partial<Pick<Account, "active" | "role" | "name">>,
+): Promise<void> {
+  const fields: Record<string, any> = {};
+  const mask: string[] = [];
+  if (patch.active !== undefined) {
+    fields.active = bool(patch.active);
+    mask.push("active");
   }
-  const next: Session = { ...session, email: account.email, name: account.name, role: account.role };
-  saveSession(next);
-  return next;
+  if (patch.role !== undefined) {
+    fields.role = str(patch.role);
+    mask.push("role");
+  }
+  if (patch.name !== undefined) {
+    fields.name = str(patch.name);
+    mask.push("name");
+  }
+  const query = mask.map((m) => `updateMask.fieldPaths=${m}`).join("&");
+  const res = await adminFetch(session, `/users/${uid}?${query}`, {
+    method: "PATCH",
+    body: JSON.stringify({ fields }),
+  });
+  if (!res.ok) throw new Error("Only admins can change accounts.");
+}
+
+export async function deleteAccount(session: Session, uid: string): Promise<void> {
+  const res = await adminFetch(session, `/users/${uid}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Only admins can remove accounts.");
 }
