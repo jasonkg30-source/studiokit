@@ -33,6 +33,7 @@ import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { blankKey, adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
+import { matchesFocus, rowsForChart, toggleFocus, type Focus } from "./crossfilter";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
 import type { Chart, DataSource, Filter, Report, Row } from "./types";
 
@@ -157,29 +158,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const [gateError, setGateError] = useState("");
   const [gateBusy, setGateBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // Slice click on a pie/donut narrows every other chart without changing the pie itself.
-  const [focuses, setFocuses] = useState<{ field: string; values: string[] }[]>([]);
+  // A click on a chart narrows every other chart; the chart that was clicked
+  // keeps its own values so more of them can be picked (see crossfilter.ts).
+  const [focuses, setFocuses] = useState<Focus[]>([]);
 
   /** Adds/removes one value in a field's selection; additive keeps the rest. */
-  const pickValue = (field: string, value: string, additive?: boolean) => {
-    setFocuses((prev) => {
-      const index = prev.findIndex((f) => f.field === field);
-      const current = index >= 0 ? prev[index] : null;
-      if (!current) return [...prev, { field, values: [value] }];
-
-      if (!additive) {
-        const same = current.values.length === 1 && blankKey(current.values[0]) === blankKey(value);
-        if (same) return prev.filter((_, i) => i !== index);
-        return prev.map((f, i) => (i === index ? { field, values: [value] } : f));
-      }
-
-      const exists = current.values.some((v) => blankKey(v) === blankKey(value));
-      const values = exists
-        ? current.values.filter((v) => blankKey(v) !== blankKey(value))
-        : [...current.values, value];
-      if (!values.length) return prev.filter((_, i) => i !== index);
-      return prev.map((f, i) => (i === index ? { field, values } : f));
-    });
+  const pickValue = (field: string, value: string, additive?: boolean, from?: string) => {
+    setFocuses((prev) => toggleFocus(prev, field, value, { additive, from }));
   };
 
   const focusGroup = (field: string) => focuses.find((f) => f.field === field) ?? null;
@@ -308,8 +293,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     let rows = applyFilters(source.rows, report.filters, isTimeField);
     for (const f of focuses) {
       if (isTimeField(f.field)) continue;
-      const wanted = new Set(f.values.map(blankKey));
-      rows = rows.filter((r) => wanted.has(normValue(r[f.field])));
+      rows = rows.filter((r) => matchesFocus(r, f));
     }
     return rows;
   }, [source, report.filters, focuses]);
@@ -322,22 +306,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const rowsByChart = useMemo(() => {
     const map = new Map<string, Row[]>();
     for (const chart of page.charts) {
-      // Tables list real rows, so every selection applies to them. Aggregate
-      // charts keep their own dimension unfiltered so other values stay clickable.
-      // A table is also a picker: if its own selection filtered it down to the
-      // picked rows only, there would be nothing left to pick a second value from.
-      // Its own dimensions therefore stay on screen (dimmed) and everything else filters.
-      const applying = focuses.filter(
-        (f) => chart.type === "scorecard" || !chart.dimensions.includes(f.field),
-      );
-      map.set(
-        chart.id,
-        applying.length
-          ? filteredRows.filter((r) =>
-              applying.every((f) => f.values.some((v) => blankKey(v) === blankKey(r[f.field]))),
-            )
-          : filteredRows,
-      );
+      map.set(chart.id, rowsForChart(filteredRows, focuses, chart));
     }
     return map;
   }, [page.charts, focuses, filteredRows]);
@@ -345,7 +314,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const visibleRows = useMemo(() => {
     let rows = filteredRows;
     for (const f of focuses) {
-      rows = rows.filter((r) => f.values.some((v) => blankKey(v) === blankKey(r[f.field])));
+      rows = rows.filter((r) => matchesFocus(r, f));
     }
     return rows;
   }, [filteredRows, focuses]);
@@ -708,7 +677,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                   onSliceClick={(value, additive, explicitField) => {
                     const field = explicitField ?? c.dimensions[0];
                     if (!field) return;
-                    pickValue(field, value === "(blank)" ? "" : value, additive);
+                    pickValue(field, value === "(blank)" ? "" : value, additive, c.id);
                   }}
                   onPatch={(patch) => dispatch({ type: "updateChart", id: c.id, patch })}
                   selected={c.id === selectedChartId}
