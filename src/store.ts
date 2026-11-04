@@ -307,6 +307,19 @@ export function currentPage(report: Report): ReportPage {
   return report.pages.find((p) => p.id === report.activePageId) || report.pages[0];
 }
 
+/** Next free "Page N", numbered after the highest existing page so tabs read in order. */
+export function nextPageName(pages: ReportPage[]): string {
+  const used = new Set(pages.map((p) => p.name.trim().toLowerCase()));
+  let highest = 0;
+  for (const page of pages) {
+    const match = page.name.trim().match(/^page\s+(\d+)$/i);
+    if (match) highest = Math.max(highest, Number(match[1]));
+  }
+  let n = Math.max(highest + 1, pages.length + 1);
+  while (used.has(`page ${n}`)) n += 1;
+  return `Page ${n}`;
+}
+
 export function reducer(state: UIState, action: Action): UIState {
   switch (action.type) {
     case "setReport": {
@@ -396,8 +409,10 @@ export function reducer(state: UIState, action: Action): UIState {
     case "selectChart":
       return { ...state, selectedChartId: action.id };
     case "addPage": {
-      const page: ReportPage = { id: crypto.randomUUID(), name: `Page ${state.report.pages.length + 1}`, charts: [] };
-      return { ...state, report: { ...state.report, pages: [...state.report.pages, page], activePageId: page.id }, selectedChartId: null };
+      // Older saved reports may predate pages; treat a missing array as one page.
+      const pages = state.report.pages ?? [];
+      const page: ReportPage = { id: crypto.randomUUID(), name: nextPageName(pages), charts: [] };
+      return { ...state, report: { ...state.report, pages: [...pages, page], activePageId: page.id }, selectedChartId: null };
     }
     case "selectPage":
       return { ...state, report: { ...state.report, activePageId: action.id }, selectedChartId: null };

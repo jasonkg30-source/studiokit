@@ -203,6 +203,15 @@ textarea {
   background: #f7f8fa;
 }
 
+/* Compact "add page" control that sits at the end of the tab strip. */
+.pages .page-add {
+  flex: none;
+  padding: 5px 9px;
+  font-size: 11.5px;
+  color: var(--muted);
+  gap: 4px;
+}
+
 .btn.wide {
   width: 100%;
 }

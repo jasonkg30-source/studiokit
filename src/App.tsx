@@ -417,8 +417,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             </button>
           ))}
           {!viewMode && (
-            <button className="icon-btn" title="Add page" onClick={() => dispatch({ type: "addPage" })}>
-              <Plus size={14} />
+            <button className="btn ghost page-add" title="Add a page" onClick={() => dispatch({ type: "addPage" })}>
+              <Plus size={14} /> Page
             </button>
           )}
         </nav>
@@ -642,9 +642,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                   <button className="btn ghost" onClick={() => dispatch({ type: "addChart", chartType: "timeseries" })}>
                     Time series
                   </button>
-                  <button className="btn ghost" onClick={() => loadTemplate("order")}>
-                    <Sheet size={14} /> Order tracker
-                  </button>
+                  {/* Loading a demo template replaces the whole report, which would delete
+                      the other pages; only offer it on a single-page dashboard. */}
+                  {report.pages.length === 1 && (
+                    <button className="btn ghost" onClick={() => loadTemplate("order")}>
+                      <Sheet size={14} /> Order tracker
+                    </button>
+                  )}
                 </div>
               )}
             </div>
