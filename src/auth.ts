@@ -115,18 +115,17 @@ export function clearSession(): void {
 }
 
 /**
- * Creates the auth user and a profile that starts out blocked. The `bootstrap`
- * code is used exactly once, to let the first account become the owner.
+ * Creates the auth user and a profile that starts out blocked until an owner
+ * approves it. There is no self-service owner path: the first owner exists already.
  */
 export async function signUp(input: {
   email: string;
   name: string;
   password: string;
-  bootstrap?: string;
 }): Promise<Session> {
   const email = input.email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Enter a valid email.");
-  if (input.password.length < 6) throw new Error("Password must be at least 6 characters.");
+  if (input.password.length < 10) throw new Error("Password must be at least 10 characters.");
 
   const auth = await post(`${IDENTITY}:signUp?key=${encodeURIComponent(cfg.apiKey)}`, {
     email,
@@ -134,13 +133,12 @@ export async function signUp(input: {
     returnSecureToken: true,
   });
 
-  const owner = Boolean(input.bootstrap);
   const profile: Profile = {
     uid: auth.localId,
     email,
     name: input.name.trim() || email,
-    role: owner ? "owner" : "member",
-    active: owner,
+    role: "member",
+    active: false,
     createdAt: Date.now(),
   };
 
@@ -154,12 +152,11 @@ export async function signUp(input: {
         role: str(profile.role),
         active: bool(profile.active),
         createdAt: num(profile.createdAt),
-        ...(owner ? { bootstrap: str(input.bootstrap!) } : {}),
       },
     }),
   });
   if (!res.ok) {
-    throw new Error(owner ? "That owner setup link has expired." : "Could not create your account.");
+    throw new Error("Could not create your account.");
   }
 
   const session = sessionFrom(auth.idToken, auth.refreshToken, auth.expiresIn, profile);

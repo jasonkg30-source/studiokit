@@ -104,7 +104,8 @@ async function loadDoc(id: string): Promise<ShareDoc> {
  * the key is derived from the password with PBKDF2 and a per-share salt.
  * The key is returned only for password-less links.
  */
-export async function createShare(json: string, password?: string): Promise<{ id: string; key?: string }> {
+export async function createShare(json: string, password?: string, idToken?: string | null): Promise<{ id: string; key?: string }> {
+  if (!idToken) throw new Error("Sign in to create a short link.");
   const trimmed = password?.trim();
   let fields: Record<string, { stringValue?: string; integerValue?: string }>;
   let exported: string | undefined;
@@ -131,9 +132,10 @@ export async function createShare(json: string, password?: string): Promise<{ id
 
   const res = await fetch(`${BASE}?key=${encodeURIComponent(cfg.apiKey)}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
     body: JSON.stringify({ fields }),
   });
+  if (res.status === 401 || res.status === 403) throw new Error("Your session expired — sign in again to create a link.");
   if (!res.ok) throw new Error(res.status === 413 ? "This dashboard is too large to share as a link." : "Could not create the link.");
   const doc = await res.json();
   const id = String(doc?.name ?? "").split("/").pop();

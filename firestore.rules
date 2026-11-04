@@ -16,8 +16,14 @@ service cloud.firestore {
     // key never leaves the sharer's browser (it rides in the URL fragment).
     match /shares/{shareId} {
       allow read: if true;
-      allow create: if request.resource.data.p is string
-                    && request.resource.data.p.size() <= 900000;
+      // Only signed-in team members may store a link, the document may hold nothing
+      // but the encrypted payload and its parameters, and it must stay under 900 KB.
+      allow create: if request.auth != null
+                    && request.resource.data.p is string
+                    && request.resource.data.p.size() <= 900000
+                    && request.resource.data.keys().hasOnly(['p', 't', 'm', 's', 'i'])
+                    && request.resource.data.t is int
+                    && (!('m' in request.resource.data) || request.resource.data.m == 'pw');
       allow update, delete: if false;
     }
 

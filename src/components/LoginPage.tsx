@@ -8,11 +8,8 @@ import { signIn, signUp, type Session } from "../auth";
  */
 export default function LoginPage({
   onSignedIn,
-  bootstrap,
 }: {
   onSignedIn: (s: Session) => void;
-  /** One-time code that turns this sign-up into the workspace owner. */
-  bootstrap?: string;
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -30,7 +27,7 @@ export default function LoginPage({
       const session =
         mode === "signin"
           ? await signIn(email, password)
-          : await signUp({ email, name, password, bootstrap });
+          : await signUp({ email, name, password });
       onSignedIn(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign in.");
@@ -51,9 +48,7 @@ export default function LoginPage({
         <p className="auth-sub">
           {mode === "signin"
             ? "Dashboards for the team."
-            : bootstrap
-              ? "This link sets up the workspace owner."
-              : "An admin has to approve new accounts before you can build."}
+            : "An admin has to approve new accounts before you can build."}
         </p>
 
         {mode === "signup" && (
@@ -90,9 +85,10 @@ export default function LoginPage({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
-            minLength={6}
+            minLength={mode === "signup" ? 10 : 1}
             required
           />
+          {mode === "signup" && <small className="hint">At least 10 characters.</small>}
         </label>
 
         {error && <div className="error-box">{error}</div>}

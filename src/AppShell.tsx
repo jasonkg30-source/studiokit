@@ -11,9 +11,6 @@ import { clearSession, getSession, refreshSession, type Session } from "./auth";
  */
 const isShareLink = () => /^#(s|r)=/.test(window.location.hash);
 
-/** `?owner=<code>` is read once, right after the very first sign-up. */
-const readBootstrap = () => new URLSearchParams(window.location.search).get("owner") ?? undefined;
-
 export default function AppShell() {
   const [session, setSession] = useState<Session | null>(() => (isShareLink() ? null : getSession()));
   const [checking, setChecking] = useState(() => !isShareLink() && !!getSession());
@@ -44,7 +41,6 @@ export default function AppShell() {
   if (!session) {
     return (
       <LoginPage
-        bootstrap={readBootstrap()}
         onSignedIn={(next) => {
           setSession(next);
         }}

@@ -43,6 +43,9 @@ const STORAGE_KEY = "studiokit.report.v1";
 // a chart must never re-compress a 50k-row blob.
 const SOURCE_KEY = "studiokit.source.v1";
 
+/** While the URL points at a share, the browser's own dashboard must not be touched. */
+const isShareHash = () => /^#(s|r)=/.test(window.location.hash);
+
 interface Persisted {
   report: Report;
   source: DataSource | null;
@@ -115,7 +118,7 @@ function initialState(): UIState {
 }
 
 interface AppProps {
-  session?: { name: string; email: string; role: "owner" | "member" } | null;
+  session?: { name: string; email: string; role: "owner" | "member"; idToken?: string } | null;
   onSignOut?: () => void;
   onOpenAdmin?: () => void;
 }
@@ -149,7 +152,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
 
   useEffect(() => {
-    if (viewMode) return;
+    if (viewMode || isShareHash()) return;
     // Debounced: layout edits are cheap but frequent.
     const id = window.setTimeout(() => {
       try {
@@ -162,7 +165,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   }, [report, viewMode]);
 
   useEffect(() => {
-    if (viewMode) return;
+    if (viewMode || isShareHash()) return;
     // Only when the rows themselves change (import, clear), never on a filter click.
     const id = window.setTimeout(() => {
       try {
@@ -214,6 +217,14 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   // Short share links: #s=<doc>&k=<key> — fetched and decrypted in the browser.
   useEffect(() => {
+    const restoreLocal = () => {
+      // A dead link must not leave the visitor staring at an empty editor, and it
+      // must not be allowed to autosave that emptiness over their own dashboard.
+      const parsed = readJSON<Persisted>(STORAGE_KEY);
+      if (!parsed?.report?.pages?.length) return;
+      const rows = readJSON<DataSource>(SOURCE_KEY) ?? parsed.source ?? null;
+      dispatch({ type: "setSource", source: rows, report: parsed.report });
+    };
     const open = () => {
       const m = window.location.hash.match(/^#s=([A-Za-z0-9]+)(?:&k=([A-Za-z0-9_-]+))?$/);
       if (!m) return;
@@ -228,6 +239,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             return;
           }
           setToast(e instanceof Error && e.message ? e.message : "Could not open this link.");
+          // Drop the broken hash so the address bar (and autosave) go back to normal.
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+          restoreLocal();
         });
     };
     // A second share opened in the same tab only changes the hash, so reload the
@@ -245,6 +259,16 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
       window.removeEventListener("hashchange", open);
       window.removeEventListener("hashchange", onHash);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A truncated #r= payload decodes to nothing; clear it instead of leaving a hash
+  // that silently blocks autosave.
+  useEffect(() => {
+    if (/^#r=/.test(window.location.hash) && !decodeHash()) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      setToast("This link is damaged — showing your own dashboard.");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -458,9 +482,12 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
               </button>
             </>
           )}
-          <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showShare: true } })}>
-            <Share2 size={14} /> Share
-          </button>
+          {/* Recipients on a share link have no account, so they can't mint new links. */}
+          {(!viewMode || session) && (
+            <button className="btn ghost" onClick={() => dispatch({ type: "ui", patch: { showShare: true } })}>
+              <Share2 size={14} /> Share
+            </button>
+          )}
           {session && !viewMode && (
             <>
               {session.role === "owner" && onOpenAdmin && (
@@ -810,6 +837,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           report={report}
           source={source}
           readOnly={viewMode}
+          idToken={session?.idToken ?? null}
           onClose={() => dispatch({ type: "ui", patch: { showShare: false } })}
           onImport={(data) => {
             dispatch({ type: "setSource", source: data.source, report: data.report });

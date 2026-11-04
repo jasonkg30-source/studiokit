@@ -5,7 +5,7 @@ import type { DataSource, Report } from "../types";
 import { downloadReport, readReportFile } from "../save";
 import { createShare } from "../shortlink";
 
-const PASSWORD_MIN = 4;
+const PASSWORD_MIN = 10;
 
 const MAX_ROWS = 2000;
 /** Firestore rejects documents over 1 MB; stay under it after base64 + AES overhead. */
@@ -16,6 +16,8 @@ interface Props {
   source: DataSource | null;
   onClose: () => void;
   readOnly: boolean;
+  /** Needed to store a short link; recipients opening a share link have none. */
+  idToken: string | null;
   onImport: (data: { report: Report; source: DataSource | null }) => void;
 }
 
@@ -32,7 +34,7 @@ function encodePayload(report: Report, source: DataSource | null): string {
   return compressToEncodedURIComponent(JSON.stringify(payload));
 }
 
-export default function ShareModal({ report, source, onClose, readOnly, onImport }: Props) {
+export default function ShareModal({ report, source, onClose, readOnly, idToken, onImport }: Props) {
   const [copied, setCopied] = useState(false);
   const [shortCopied, setShortCopied] = useState(false);
   const [error, setError] = useState("");
@@ -61,13 +63,17 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
 
   const makeShort = async () => {
     setError("");
+    if (!idToken) {
+      setError("Sign in to create a short link. The long link below still works for anyone.");
+      return;
+    }
     if (pwMode && pw.trim().length < PASSWORD_MIN) {
       setError(`Use at least ${PASSWORD_MIN} characters.`);
       return;
     }
     setBusy(true);
     try {
-      const { id, key } = await createShare(payloadJson, pwMode ? pw : undefined);
+      const { id, key } = await createShare(payloadJson, pwMode ? pw : undefined, idToken);
       const base = `${window.location.origin}${window.location.pathname}#s=${id}`;
       setShort(key ? `${base}&k=${key}` : base);
       setShortPw(!key);
@@ -220,15 +226,17 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
         </div>
 
         <div className="share-row">
-          <button className="btn ghost" onClick={makeShort} disabled={busy || !link || noData}>
+          <button className="btn ghost" onClick={makeShort} disabled={busy || !link || noData || !idToken}>
             {pwMode ? <Lock size={14} /> : <Link2 size={14} />}{" "}
             {busy ? "Encrypting…" : short ? "Make another link" : pwMode ? "Create password link" : "Create short link"}
           </button>
-          {short && (
+          {!idToken ? (
+            <span className="hint">Sign in to create short links</span>
+          ) : short ? (
             <span className="hint">
               {(short.length).toLocaleString()} chars · {shortPw ? "password required" : "key in the link"}
             </span>
-          )}
+          ) : null}
         </div>
 
         {shortPw && (
