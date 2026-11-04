@@ -32,10 +32,11 @@ import { PasswordRequired, readShare, readShareWithPassword } from "./shortlink"
 import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
-import { blankKey, adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
+import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
+import { applyFilters } from "./filters";
 import { matchesFocus, rowsForChart, toggleFocus, type Focus } from "./crossfilter";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
-import type { Chart, DataSource, Filter, Report, Row } from "./types";
+import type { Chart, DataSource, Report, Row } from "./types";
 
 const STORAGE_KEY = "studiokit.report.v1";
 // Rows are stored apart from the layout: they only change on import, so editing
@@ -123,31 +124,6 @@ interface AppProps {
 /** Month / date style fields: the year-over-year overlay shifts these by one year. */
 const isTimeField = (field: string) =>
   /(^|[^a-z])(month|date|year|period|quarter|week)([^a-z]|$)/i.test(field);
-
-/** Applies value + numeric-range filters; `skip` lets the YoY pass ignore the date filters. */
-function applyFilters(rows: Row[], filters: Filter[], skip?: (field: string) => boolean): Row[] {
-  let out = rows;
-  for (const f of filters) {
-    if (skip?.(f.field)) continue;
-    const lo = f.min !== undefined && f.min !== "" ? Number(f.min) : null;
-    const hi = f.max !== undefined && f.max !== "" ? Number(f.max) : null;
-    if (lo !== null || hi !== null) {
-      out = out.filter((r) => {
-        const raw = r[f.field];
-        const n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[$,%\s]/g, ""));
-        if (raw === null || raw === undefined || raw === "" || isNaN(n)) return false;
-        if (lo !== null && n < lo) return false;
-        if (hi !== null && n > hi) return false;
-        return true;
-      });
-      continue;
-    }
-    if (!f.values.length) continue;
-    const wanted = new Set(f.values.map(blankKey));
-    out = out.filter((r) => wanted.has(normValue(r[f.field])));
-  }
-  return out;
-}
 
 export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
@@ -513,6 +489,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           )}
         </div>
       </header>
+
+      {viewMode && (source?.rows.length ?? 0) === 0 && (
+        <div className="notice warn">
+          This link arrived without any data, so there is nothing to show. Ask the sender to open the dashboard with the
+          data loaded and share it again.
+        </div>
+      )}
 
       <div className="body">
         {!viewMode && <LeftPanel source={source} dispatch={dispatch} onAddField={addFieldToSelected} hasSelection={!!selected} />}

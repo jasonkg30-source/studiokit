@@ -114,6 +114,9 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
   };
 
   const truncated = (source?.rows.length ?? 0) > MAX_ROWS;
+  // A link built while the dashboard has no rows opens as an empty dashboard for
+  // everyone; refuse instead of shipping a broken share.
+  const noData = (source?.rows.length ?? 0) === 0;
   const sizeKb = Math.round(new TextEncoder().encode(link).length / 1024);
   // Chat apps drop the tail of long URLs, which used to arrive as an empty dashboard.
   const tooBig = sizeKb > 8;
@@ -157,6 +160,13 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
           the key rides in the link itself; with a password the key is derived from it and the link stays bare.
         </p>
 
+        {noData && (
+          <p className="notice warn">
+            No data is loaded in this dashboard, so a link created now would open empty for everyone. Add the data first
+            (Data → CSV / Excel), then share.
+          </p>
+        )}
+
         <div className="share-mode">
           <label className={`mode-card ${!pwMode ? "on" : ""}`}>
             <input type="radio" checked={!pwMode} onChange={() => setPwMode(false)} />
@@ -195,7 +205,7 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
             value={short ?? link}
             onFocus={(e) => e.currentTarget.select()}
           />
-          <button className="btn primary" onClick={short ? copyShort : copy} disabled={!link || (!short && tooBig)}>
+          <button className="btn primary" onClick={short ? copyShort : copy} disabled={!link || noData || (!short && tooBig)}>
             <Copy size={14} />{" "}
             {short
               ? shortCopied
@@ -210,7 +220,7 @@ export default function ShareModal({ report, source, onClose, readOnly, onImport
         </div>
 
         <div className="share-row">
-          <button className="btn ghost" onClick={makeShort} disabled={busy || !link}>
+          <button className="btn ghost" onClick={makeShort} disabled={busy || !link || noData}>
             {pwMode ? <Lock size={14} /> : <Link2 size={14} />}{" "}
             {busy ? "Encrypting…" : short ? "Make another link" : pwMode ? "Create password link" : "Create short link"}
           </button>

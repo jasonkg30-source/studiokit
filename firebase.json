@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "studiokit-app",
     "public": "dist",
     "ignore": [
       "firebase.json",

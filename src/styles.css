@@ -722,6 +722,25 @@ textarea {
   padding: 4px 2px;
 }
 
+/* Amber explanation shown when a share would open empty. */
+.notice {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+}
+
+.notice.warn {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
+.app > .notice.warn {
+  margin: 12px 18px 0;
+}
+
 /* ---------- type thumbnails ---------- */
 .type-icon {
   width: 26px;
