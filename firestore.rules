@@ -38,20 +38,9 @@ service cloud.firestore {
                     && request.resource.data.createdAt is int
                     && (
                       // Normal sign-up: blocked until an admin approves it.
-                      (
-                        request.resource.data.role == 'member'
-                        && request.resource.data.active == false
-                        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'active', 'createdAt'])
-                      )
-                      ||
-                      // One-time owner bootstrap. This clause is removed right
-                      // after the first account exists.
-                      (
-                        request.resource.data.bootstrap == 'sk9f2c41b7e0'
-                        && request.resource.data.role == 'owner'
-                        && request.resource.data.active == true
-                        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'active', 'createdAt', 'bootstrap'])
-                      )
+                      request.resource.data.role == 'member'
+                      && request.resource.data.active == false
+                      && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'active', 'createdAt'])
                     );
 
       allow update: if isAdmin()
