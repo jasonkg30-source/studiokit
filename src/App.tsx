@@ -50,6 +50,15 @@ const isShareHash = () => /^#(s|r)=/.test(window.location.hash);
 interface Persisted {
   report: Report;
   source: DataSource | null;
+  savedAt?: number;
+}
+
+function readLocalSavedAt(): number {
+  try {
+    return readJSON<Persisted>(STORAGE_KEY)?.savedAt ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 function decodeHash(): Persisted | null {
@@ -145,7 +154,12 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const lastPushed = useRef("");
   /** Set once the cloud copy has been applied, so a late local hydrate can't win the race. */
   const cloudApplied = useRef(false);
+  // Never overwrite a cloud copy that still holds rows with a layout-only
+  // workspace: that is how a second machine used to wipe the data.
+  const cloudHasRows = useRef(false);
+  const sessionHadRows = useRef(false);
   const sourceRef = useRef<DataSource | null>(source);
+  if ((source?.rows.length ?? 0) > 0) sessionHadRows.current = true;
   const token = session?.idToken ?? null;
   const uid = session?.uid ?? null;
   // A click on a chart narrows every other chart; the chart that was clicked
@@ -167,7 +181,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     // Debounced: layout edits are cheap but frequent.
     const id = window.setTimeout(() => {
       try {
-        writeJSON(STORAGE_KEY, { report, source: null } satisfies Persisted);
+        writeJSON(STORAGE_KEY, { report, source: null, savedAt: Date.now() } satisfies Persisted);
       } catch {
         setToast("Autosave failed — browser storage is full");
       }
@@ -238,13 +252,49 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
       return;
     }
     let alive = true;
+    const localSavedAt = readLocalSavedAt();
     pullWorkspace(token, uid)
       .then(async (payload) => {
         if (!alive || !payload) return;
         const remote = await decodeWorkspaceAsync(payload);
-        if (!alive || !remote) return;
+        if (!alive) return;
+        if (!remote) {
+          setToast("Cloud copy couldn't be read — keeping this browser's copy");
+          return;
+        }
         lastPushed.current = payload;
-        if (report.pages.some((p) => p.charts.length > 0)) return;
+
+        const localCharts = report.pages.reduce((sum, p) => sum + p.charts.length, 0);
+        const localRows = source?.rows.length ?? 0;
+        const remoteRows = remote.source?.rows.length ?? 0;
+        const remoteNewer = (remote.savedAt ?? 0) > localSavedAt;
+        if (remoteRows > 0) cloudHasRows.current = true;
+
+        // The cloud copy is the only place the rows survive, so take them
+        // whenever this browser has none — even if it already has a layout.
+        if (localRows === 0 && remoteRows > 0) {
+          cloudApplied.current = true;
+          if (localCharts > 0) {
+            dispatch({ type: "setSource", source: remote.source });
+            setToast(`Loaded ${remoteRows.toLocaleString()} rows from the cloud`);
+            return;
+          }
+          dispatch({ type: "setSource", source: remote.source, report: remote.report });
+          if (listTemplates().length === 0 && remote.templates?.length) replaceTemplates(remote.templates);
+          setToast("Loaded your dashboard from the cloud");
+          return;
+        }
+
+        if (localCharts > 0) {
+          // Both sides have a layout: the newer one wins so the machines converge.
+          if (!remoteNewer) return;
+          cloudApplied.current = true;
+          dispatch({ type: "setSource", source: remote.source, report: remote.report });
+          if (listTemplates().length === 0 && remote.templates?.length) replaceTemplates(remote.templates);
+          setToast("Loaded your dashboard from the cloud");
+          return;
+        }
+
         cloudApplied.current = true;
         dispatch({ type: "setSource", source: remote.source, report: remote.report });
         if (listTemplates().length === 0 && remote.templates?.length) replaceTemplates(remote.templates);
@@ -252,6 +302,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
       })
       .catch(() => {
         // Offline or expired token: carry on with the local copy.
+        setToast("Couldn't reach the cloud — working from this browser's copy");
       })
       .finally(() => {
         if (alive) setCloudReady(true);
@@ -267,6 +318,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   useEffect(() => {
     if (!token || !uid || viewMode || isShareHash() || !cloudReady) return;
     if (!source && report.pages.every((p) => p.charts.length === 0)) return;
+    // A machine that never had rows (its pull failed) must not replace a good
+    // cloud copy with an empty one.
+    if (!source && cloudHasRows.current && !sessionHadRows.current) return;
     const id = window.setTimeout(() => {
       const workspace: Workspace = { report, source, templates: listTemplates(), savedAt: Date.now() };
       void fitWorkspace(workspace).then(({ payload, trimmedRows, trimmedTemplates }) => {
