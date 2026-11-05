@@ -153,6 +153,20 @@ textarea {
   background: var(--accent-soft);
   color: var(--accent);
 }
+/* Rename happens in place: the tab becomes an input for one edit. */
+.page-rename {
+  height: 30px;
+  width: 120px;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
 
 .tab-x {
   display: inline-flex;

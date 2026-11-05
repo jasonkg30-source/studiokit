@@ -147,6 +147,17 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const [gateError, setGateError] = useState("");
   const [gateBusy, setGateBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Renaming a page happens right in the tab strip; the id keeps the input open
+  // only for the tab being edited.
+  const [editingPage, setEditingPage] = useState<string | null>(null);
+  const [pageDraft, setPageDraft] = useState("");
+
+  const commitRename = (id: string, current: string) => {
+    const name = (editingPage === id ? pageDraft : "").trim().slice(0, 40);
+    // An empty name would leave an unclickable tab, so keep the old one.
+    if (name && name !== current) dispatch({ type: "renamePage", id, name });
+    setEditingPage(null);
+  };
   // Cloud sync: the workspace lives in Firestore under the signed-in uid, so the
   // same account on another machine opens the same dashboard.
   const [cloudReady, setCloudReady] = useState(false);
@@ -565,28 +576,58 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
         </div>
 
         <nav className="pages">
-          {report.pages.map((p) => (
-            <button
-              key={p.id}
-              className={`page-tab ${p.id === page.id ? "active" : ""}`}
-              onClick={() => dispatch({ type: "selectPage", id: p.id })}
-            >
-              {p.name}
-              {!viewMode && report.pages.length > 1 && p.id === page.id && (
-                <span
-                  className="tab-x"
-                  role="button"
-                  aria-label="Delete page"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    dispatch({ type: "deletePage", id: p.id });
-                  }}
-                >
-                  <X size={11} />
-                </span>
-              )}
-            </button>
-          ))}
+          {report.pages.map((p) =>
+            editingPage === p.id ? (
+              <input
+                key={p.id}
+                className="page-rename"
+                value={pageDraft}
+                autoFocus
+                maxLength={40}
+                aria-label="Page name"
+                onChange={(e) => setPageDraft(e.target.value)}
+                onBlur={() => commitRename(p.id, p.name)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitRename(p.id, p.name);
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setEditingPage(null);
+                  }
+                }}
+              />
+            ) : (
+              <button
+                key={p.id}
+                className={`page-tab ${p.id === page.id ? "active" : ""}`}
+                title={viewMode ? p.name : `${p.name} — double-click to rename`}
+                onClick={() => dispatch({ type: "selectPage", id: p.id })}
+                onDoubleClick={() => {
+                  if (viewMode) return;
+                  setPageDraft(p.name);
+                  setEditingPage(p.id);
+                }}
+              >
+                {p.name}
+                {!viewMode && report.pages.length > 1 && p.id === page.id && (
+                  <span
+                    className="tab-x"
+                    role="button"
+                    aria-label="Delete page"
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch({ type: "deletePage", id: p.id });
+                    }}
+                  >
+                    <X size={11} />
+                  </span>
+                )}
+              </button>
+            ),
+          )}
           {!viewMode && (
             <button className="btn ghost page-add" title="Add a page" onClick={() => dispatch({ type: "addPage" })}>
               <Plus size={14} /> Page
