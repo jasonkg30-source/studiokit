@@ -398,15 +398,16 @@ textarea {
   position: relative;
   display: inline-block;
   flex: 0 0 auto;
-  /* The box is the name plus its padding and nothing else, so a short name never
-     floats in a wide box. Anything past this is clipped, full name in the tooltip. */
-  max-width: 160px;
+  /* Roomy, not snug: the name gets room to breathe and short names keep a usable
+     target. Long names stop here and show in full in the tooltip. */
+  min-width: 88px;
+  max-width: 260px;
 }
 
 .filter-name-text {
   display: block;
   visibility: hidden;
-  padding: 0 26px 0 7px;
+  padding: 0 38px 0 12px;
   font-size: 12px;
   line-height: 28px;
   white-space: pre;
@@ -423,7 +424,7 @@ textarea {
      what turned "SKU" into "SK…". Draw our own and reserve exactly that space. */
   appearance: none;
   -webkit-appearance: none;
-  padding: 0 18px 0 6px;
+  padding: 0 26px 0 9px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23808a99' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 6px center;
