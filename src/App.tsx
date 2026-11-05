@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { decompressFromEncodedURIComponent } from "lz-string";
 import {
   ArrowLeft,
@@ -534,18 +534,6 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     return out;
   };
 
-  // Every filter chip shows its name in a box of the same width, so the chips
-  // read as one row instead of a ragged line. The widest name on show sets the
-  // width (capped, with the full name in the tooltip).
-  const nameBoxes = useRef<(HTMLSpanElement | null)[]>([]);
-  const [nameCol, setNameCol] = useState(0);
-  const filterNameKey = report.filters.map((f) => f.field).join("\u0001");
-  useLayoutEffect(() => {
-    const widths = nameBoxes.current.slice(0, report.filters.length).map((el) => (el ? el.scrollWidth : 0));
-    const widest = Math.max(0, ...widths);
-    setNameCol(widest ? Math.min(160, Math.max(76, widest)) : 0);
-  }, [filterNameKey, viewMode, source?.id]);
-
   /** Fields a filter can be built on: categorical text plus numeric measures. */
   const filterFields = useMemo(() => {
     if (!source) return [] as { name: string; type: FieldType; kind: "text" | "number" }[];
@@ -742,16 +730,10 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
               return (
                 <div className="filter-group" key={i}>
-                  {/* One shared name column: the picker sits in it and is only as
-                      wide as the widest name on show, never the longest option. */}
-                  <span className="filter-name" style={nameCol ? { width: nameCol } : undefined}>
-                    <span
-                      className="filter-name-text"
-                      aria-hidden="true"
-                      ref={(el) => {
-                        nameBoxes.current[i] = el;
-                      }}
-                    >
+                  {/* The picker is sized to the name it shows, not to the longest
+                      option in the list: every filter can name a different field. */}
+                  <span className="filter-name">
+                    <span className="filter-name-text" aria-hidden="true">
                       {f.field}
                     </span>
                     <select
