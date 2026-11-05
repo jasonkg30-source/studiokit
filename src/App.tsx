@@ -730,23 +730,30 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
               return (
                 <div className="filter-group" key={i}>
-                  <select
-                    className="select slim"
-                    value={f.field}
-                    disabled={state.locked}
-                    title={state.locked ? "Filters are fixed on a shared dashboard" : undefined}
-                    onChange={(e) => {
-                      const next = [...report.filters];
-                      next[i] = { field: e.target.value, values: [] };
-                      dispatch({ type: "setReport", report: { ...report, filters: next } });
-                    }}
-                  >
-                    {filterFields.map((d) => (
-                      <option key={d.name} value={d.name}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
+                  {/* The picker is sized to the name it shows, not to the longest
+                      option in the list: every filter can name a different field. */}
+                  <span className="filter-name">
+                    <span className="filter-name-text" aria-hidden="true">
+                      {f.field}
+                    </span>
+                    <select
+                      className="select slim"
+                      value={f.field}
+                      disabled={state.locked}
+                      title={state.locked ? "Filters are fixed on a shared dashboard" : f.field}
+                      onChange={(e) => {
+                        const next = [...report.filters];
+                        next[i] = { field: e.target.value, values: [] };
+                        dispatch({ type: "setReport", report: { ...report, filters: next } });
+                      }}
+                    >
+                      {filterFields.map((d) => (
+                        <option key={d.name} value={d.name}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
                   {kind === "number" && (
                     <button
                       className="filter-mode"

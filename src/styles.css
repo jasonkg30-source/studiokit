@@ -370,7 +370,36 @@ textarea {
   flex: 1;
 }
 
-/* One small button switches a numeric filter between a range and a value list. */
+/* Filter names vary, so the picker is as wide as the name it currently shows.
+   The hidden copy of the name sets the width; the select is taken out of flow so
+   its own (longest-option) intrinsic width cannot widen the chip. */
+.filter-name {
+  position: relative;
+  display: inline-block;
+  /* Long enough for a real column name; anything longer is clipped, with the
+     full name still in the tooltip. */
+  max-width: 230px;
+}
+
+.filter-name-text {
+  display: block;
+  visibility: hidden;
+  padding: 0 22px 0 7px;
+  font-size: 12px;
+  line-height: 28px;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.filter-name .select.slim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  padding: 0 4px 0 6px;
+  text-overflow: ellipsis;
+}
+
 .filter-mode {
   display: inline-flex;
   align-items: center;
