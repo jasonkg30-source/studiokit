@@ -370,6 +370,27 @@ textarea {
   flex: 1;
 }
 
+/* Shown when a deploy lands while a tab stays open. */
+.update-pill {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+}
+
+.update-pill:hover {
+  background: #1f2937;
+}
+
 /* Filter names vary, so the picker is as wide as the name it currently shows.
    The hidden copy of the name sets the width; the select is taken out of flow so
    its own (longest-option) intrinsic width cannot widen the chip. */
