@@ -384,7 +384,7 @@ textarea {
 .filter-name-text {
   display: block;
   visibility: hidden;
-  padding: 0 22px 0 7px;
+  padding: 0 26px 0 7px;
   font-size: 12px;
   line-height: 28px;
   white-space: pre;
@@ -396,8 +396,15 @@ textarea {
   inset: 0;
   width: 100%;
   min-width: 0;
-  padding: 0 4px 0 6px;
-  text-overflow: ellipsis;
+  /* The native arrow eats ~18px the hidden name does not know about, which is
+     what turned "SKU" into "SK…". Draw our own and reserve exactly that space. */
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 18px 0 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23808a99' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  text-overflow: clip;
 }
 
 .filter-mode {
@@ -2631,7 +2638,8 @@ body.chart-drag * {
 .filter-group .select:disabled {
   opacity: 1;
   color: var(--muted);
-  background: #f8fafc;
+  /* Colour only: the shorthand would wipe the custom chevron the picker draws. */
+  background-color: #f8fafc;
   cursor: default;
 }
 
