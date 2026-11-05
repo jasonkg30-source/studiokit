@@ -376,9 +376,10 @@ textarea {
 .filter-name {
   position: relative;
   display: inline-block;
-  /* Long enough for a real column name; anything longer is clipped, with the
-     full name still in the tooltip. */
-  max-width: 230px;
+  flex: 0 0 auto;
+  /* The box is the name plus its padding and nothing else, so a short name never
+     floats in a wide box. Anything past this is clipped, full name in the tooltip. */
+  max-width: 160px;
 }
 
 .filter-name-text {
@@ -392,6 +393,7 @@ textarea {
 }
 
 .filter-name .select.slim {
+  box-sizing: border-box;
   position: absolute;
   inset: 0;
   width: 100%;
