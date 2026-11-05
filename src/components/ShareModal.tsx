@@ -8,8 +8,9 @@ import { createShare } from "../shortlink";
 const PASSWORD_MIN = 10;
 
 const MAX_ROWS = 2000;
-/** Firestore rejects documents over 1 MB; stay under it after base64 + AES overhead. */
-const SHORT_LIMIT = 900_000;
+/** A long URL can't carry much; short links are stored and can hold ~500k rows. */
+const SHORT_LIMIT = 40_000_000;
+const SHORT_KEEP = 50_000;
 
 interface Props {
   report: Report;
@@ -53,12 +54,13 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
     }
   }, [report, source]);
 
-  // Short links are stored, not pasted into a chat, so they carry every row that fits.
-  const { payloadJson, shortComplete } = useMemo(() => {
+  // Short links are stored, not pasted into a chat, so they carry every row.
+  const { payloadJson, shortComplete, shortRows } = useMemo(() => {
+    const total = source?.rows.length ?? 0;
     const full = JSON.stringify({ r: report, s: source ? { ...source, rows: source.rows } : null });
-    if (new TextEncoder().encode(full).length <= SHORT_LIMIT) return { payloadJson: full, shortComplete: true };
-    const cut = JSON.stringify({ r: report, s: source ? { ...source, rows: source.rows.slice(0, MAX_ROWS) } : null });
-    return { payloadJson: cut, shortComplete: false };
+    if (full.length <= SHORT_LIMIT) return { payloadJson: full, shortComplete: true, shortRows: total };
+    const cut = JSON.stringify({ r: report, s: source ? { ...source, rows: source.rows.slice(0, SHORT_KEEP) } : null });
+    return { payloadJson: cut, shortComplete: false, shortRows: Math.min(SHORT_KEEP, total) };
   }, [report, source]);
 
   const makeShort = async () => {
@@ -261,7 +263,7 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
           {truncated && <span className="pill warn">Long link: first {MAX_ROWS.toLocaleString()} rows</span>}
           {short && (
             <span className={`pill ${shortComplete ? "" : "warn"}`}>
-              {shortComplete ? `All ${(source?.rows.length ?? 0).toLocaleString()} rows` : `Short link: first ${MAX_ROWS.toLocaleString()} rows`}
+              {shortComplete ? `All ${(source?.rows.length ?? 0).toLocaleString()} rows` : `Short link: first ${shortRows.toLocaleString()} rows`}
             </span>
           )}
           {tooBig && <span className="pill warn">Chat apps cut links this long — create a short link</span>}

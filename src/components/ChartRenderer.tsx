@@ -410,11 +410,14 @@ function tooltipStyle() {
 }
 
 export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatch, allRows }: Props) {
-  const data = buildSeries(rows, chart);
+  const data = useMemo(() => buildSeries(rows, chart), [rows, chart]);
   const metrics = chart.metrics.filter((m) => m.field);
   const colors = chart.palette?.length ? chart.palette : ["#2563eb"];
 
-  const yoy = chart.compareYoY && allRows ? withPreviousYear(data, chart, allRows) : null;
+  const yoy = useMemo(
+    () => (chart.compareYoY && allRows ? withPreviousYear(data, chart, allRows) : null),
+    [chart, data, allRows],
+  );
   const hasPrev = !!yoy?.some((d) => typeof d.__prev === "number");
   const prevYear = (() => {
     const p = monthParts(String(data[0]?.dims?.[0] ?? data[0]?.key ?? ""));

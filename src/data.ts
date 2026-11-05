@@ -511,30 +511,112 @@ export function withPreviousYear(data: ChartDatum[], chart: Chart, allRows: Row[
   });
 }
 
+/**
+ * Distinct groups kept before everything else is folded into "Other". A date or
+ * amount column can hold one value per row; without a ceiling a single chart
+ * built over 100k rows would create 100k bars and freeze the tab.
+ */
+export const MAX_GROUPS = 4000;
+
+interface MetricAcc {
+  sum: number;
+  n: number;
+  min: number;
+  max: number;
+  set?: Set<string>;
+}
+
+interface Bucket {
+  labels: string[];
+  count: number;
+  metrics: MetricAcc[];
+}
+
+function emptyBucket(labels: string[], metrics: Chart["metrics"]): Bucket {
+  return {
+    labels,
+    count: 0,
+    metrics: metrics.map((m) => ({
+      sum: 0,
+      n: 0,
+      min: Infinity,
+      max: -Infinity,
+      set: m.agg === "count_distinct" ? new Set<string>() : undefined,
+    })),
+  };
+}
+
+/**
+ * Groups rows and aggregates in one pass. Values are accumulated in place
+ * instead of collecting each group's rows, so memory stays flat as the source
+ * grows past 100k rows.
+ */
 export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
   const dims = chart.dimensions.filter(Boolean);
   const metrics = chart.metrics.filter((m) => m.field);
-  if (!metrics.length) return [];
+  if (!metrics.length || !rows.length) return [];
 
-  const groups = new Map<string, { labels: string[]; rows: Row[] }>();
-  if (!dims.length) {
-    groups.set("all", { labels: ["All"], rows });
-  } else {
-    for (const row of rows) {
-      const labels = dims.map((d) => {
+  const groups = new Map<string, Bucket>();
+  let other: Bucket | null = null;
+
+  for (const row of rows) {
+    let labels: string[];
+    let key: string;
+    if (!dims.length) {
+      labels = ["All"];
+      key = "all";
+    } else {
+      labels = dims.map((d) => {
         const raw = String(row[d] ?? "").trim();
         return raw === "" ? "(blank)" : raw;
       });
-      const key = labels.map(normValue).join("\u0000");
-      const bucket = groups.get(key);
-      if (bucket) bucket.rows.push(row);
-      else groups.set(key, { labels, rows: [row] });
+      key = labels.map(normValue).join("\u0000");
+    }
+
+    let bucket = groups.get(key);
+    if (!bucket) {
+      if (groups.size >= MAX_GROUPS) {
+        if (!other) other = emptyBucket(["Other"], chart.metrics);
+        bucket = other;
+      } else {
+        bucket = emptyBucket(labels, chart.metrics);
+        groups.set(key, bucket);
+      }
+    }
+
+    bucket.count += 1;
+    for (let i = 0; i < metrics.length; i += 1) {
+      const m = metrics[i];
+      const acc = bucket.metrics[i];
+      if (m.agg === "count") continue;
+      const value = row[m.field];
+      if (m.agg === "count_distinct") {
+        if (value !== null && value !== undefined && String(value).trim() !== "") acc.set!.add(String(value).trim());
+        continue;
+      }
+      if (typeof value !== "number" || isNaN(value)) continue;
+      acc.sum += value;
+      acc.n += 1;
+      if (value < acc.min) acc.min = value;
+      if (value > acc.max) acc.max = value;
     }
   }
 
-  let data: ChartDatum[] = Array.from(groups.values()).map(({ labels, rows: bucket }) => {
-    const datum: ChartDatum = { key: labels.join(" / "), dims: labels };
-    for (const m of metrics) datum[m.field] = round(aggregateValue(bucket, m.field, m.agg));
+  const buckets = other ? [...groups.values(), other] : [...groups.values()];
+  let data: ChartDatum[] = buckets.map((bucket) => {
+    const datum: ChartDatum = { key: bucket.labels.join(" / "), dims: bucket.labels };
+    for (let i = 0; i < metrics.length; i += 1) {
+      const m = metrics[i];
+      const acc = bucket.metrics[i];
+      let value = 0;
+      if (m.agg === "count") value = bucket.count;
+      else if (m.agg === "count_distinct") value = acc.set?.size ?? 0;
+      else if (m.agg === "sum") value = acc.sum;
+      else if (m.agg === "avg") value = acc.n ? acc.sum / acc.n : 0;
+      else if (m.agg === "min") value = acc.n ? acc.min : 0;
+      else if (m.agg === "max") value = acc.n ? acc.max : 0;
+      datum[m.field] = round(value);
+    }
     return datum;
   });
 
@@ -543,6 +625,14 @@ export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
   if (chart.sort === "metric_desc" || chart.sort === "metric_asc") {
     const f = metrics[0].field;
     data.sort((a, b) => (chart.sort === "metric_asc" ? 1 : -1) * (Number(a[f]) - Number(b[f])));
+  }
+  // The overflow bucket is a remainder, not a category: keep it at the end.
+  if (other) {
+    const idx = data.indexOf(data.find((d) => d.key === "Other")!);
+    if (idx >= 0 && idx !== data.length - 1) {
+      const [tail] = data.splice(idx, 1);
+      data.push(tail);
+    }
   }
   if (chart.limit > 0 && data.length > chart.limit) data = data.slice(0, chart.limit);
   return data;

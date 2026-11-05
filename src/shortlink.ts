@@ -1,8 +1,10 @@
-import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
+import { compressAsync, decompressAsync } from "./compress";
 import cfg from "./firebase-config.json";
 
 const BASE = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/default/documents/shares`;
 const ITERATIONS = 310000;
+/** Firestore allows 1 MB per document; parts stay well under it. */
+const PART_SIZE = 700_000;
 
 export class PasswordRequired extends Error {
   constructor(public shareId: string) {
@@ -12,8 +14,12 @@ export class PasswordRequired extends Error {
 }
 
 const toB64Url = (bytes: Uint8Array) => {
+  // Chunked: a 2 MB ciphertext built one char at a time takes seconds.
   let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 
@@ -53,7 +59,8 @@ async function passwordKey(password: string, salt: BufferSource, iterations: num
 
 async function sealWith(json: string, key: CryptoKey): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plain = new TextEncoder().encode(compressToEncodedURIComponent(json));
+  const compressed = await compressAsync(json);
+  const plain = new TextEncoder().encode(compressed);
   const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plain));
   const blob = new Uint8Array(iv.length + sealed.length);
   blob.set(iv);
@@ -66,7 +73,8 @@ async function openWith(cipher: string, key: CryptoKey): Promise<unknown> {
   const blob = fromB64Url(cipher);
   const plain = await subtle.decrypt({ name: "AES-GCM", iv: blob.slice(0, 12) }, key, blob.slice(12));
   const text = new TextDecoder().decode(plain);
-  return JSON.parse(decompressFromEncodedURIComponent(text) ?? text);
+  const json = await decompressAsync(text);
+  return JSON.parse(json || text);
 }
 
 type ShareDoc = {
@@ -79,6 +87,20 @@ type ShareDoc = {
 
 const cache = new Map<string, ShareDoc>();
 
+async function readParts(id: string, count: number): Promise<string> {
+  const parts = await Promise.all(
+    Array.from({ length: count }, async (_, index) => {
+      const res = await fetch(
+        `${BASE}/${encodeURIComponent(id)}/parts/${index}?key=${encodeURIComponent(cfg.apiKey)}`,
+      );
+      if (!res.ok) throw new Error("Could not open the shared dashboard.");
+      const body = await res.json();
+      return String(body?.fields?.p?.stringValue ?? "");
+    }),
+  );
+  return parts.join("");
+}
+
 async function loadDoc(id: string): Promise<ShareDoc> {
   const hit = cache.get(id);
   if (hit) return hit;
@@ -86,7 +108,9 @@ async function loadDoc(id: string): Promise<ShareDoc> {
   if (!res.ok) throw new Error(res.status === 404 ? "This link no longer exists." : "Could not open the shared dashboard.");
   const doc = await res.json();
   const fields = doc?.fields ?? {};
-  const cipher = fields?.p?.stringValue;
+  let cipher: string | undefined = fields?.p?.stringValue;
+  const count = Number(fields?.n?.integerValue ?? 0);
+  if (!cipher && count > 0) cipher = await readParts(id, count);
   if (!cipher) throw new Error("This link is missing its data.");
   const parsed: ShareDoc = {
     id,
@@ -110,11 +134,12 @@ export async function createShare(json: string, password?: string, idToken?: str
   let fields: Record<string, { stringValue?: string; integerValue?: string }>;
   let exported: string | undefined;
 
+  let cipher: string;
   if (trimmed) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const key = await passwordKey(trimmed, salt, ITERATIONS);
+    cipher = await sealWith(json, key);
     fields = {
-      p: { stringValue: await sealWith(json, key) },
       t: { integerValue: String(Date.now()) },
       m: { stringValue: "pw" },
       s: { stringValue: toB64Url(salt) },
@@ -124,11 +149,16 @@ export async function createShare(json: string, password?: string, idToken?: str
     const key = await randomKey();
     const raw = new Uint8Array(await crypto.subtle.exportKey("raw", key));
     exported = toB64Url(raw);
-    fields = {
-      p: { stringValue: await sealWith(json, key) },
-      t: { integerValue: String(Date.now()) },
-    };
+    cipher = await sealWith(json, key);
+    fields = { t: { integerValue: String(Date.now()) } };
   }
+
+  // A 100k-row dashboard encrypts to a couple of megabytes, so the payload is
+  // spread over part documents and the manifest only carries the count.
+  const parts: string[] = [];
+  for (let i = 0; i < cipher.length; i += PART_SIZE) parts.push(cipher.slice(i, i + PART_SIZE));
+  if (parts.length === 1) fields.p = { stringValue: cipher };
+  else fields.n = { integerValue: String(parts.length) };
 
   const res = await fetch(`${BASE}?key=${encodeURIComponent(cfg.apiKey)}`, {
     method: "POST",
@@ -140,6 +170,19 @@ export async function createShare(json: string, password?: string, idToken?: str
   const doc = await res.json();
   const id = String(doc?.name ?? "").split("/").pop();
   if (!id) throw new Error("Could not create the link.");
+
+  if (parts.length > 1) {
+    await Promise.all(
+      parts.map(async (part, index) => {
+        const put = await fetch(`${BASE}/${encodeURIComponent(id)}/parts/${index}?key=${encodeURIComponent(cfg.apiKey)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ fields: { p: { stringValue: part } } }),
+        });
+        if (!put.ok) throw new Error("Could not upload every part of the link.");
+      }),
+    );
+  }
   return { id, key: exported };
 }
 

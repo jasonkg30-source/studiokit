@@ -27,9 +27,9 @@ import LeftPanel from "./components/LeftPanel";
 import MultiSelect from "./components/MultiSelect";
 import TemplateModal from "./components/TemplateModal";
 import { saveTemplate, type SavedTemplate } from "./templates";
-import { QuotaError, readJSON, writeJSON } from "./storage";
+import { QuotaError, idbDelete, idbGet, idbSet, readJSON, removeKey, writeJSON } from "./storage";
 import { PasswordRequired, readShare, readShareWithPassword } from "./shortlink";
-import { decodeWorkspace, fitWorkspace, pullWorkspace, pushWorkspace, type Workspace } from "./cloud";
+import { decodeWorkspaceAsync, fitWorkspace, pullWorkspace, pushWorkspace, type Workspace } from "./cloud";
 import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
@@ -89,7 +89,7 @@ function initialState(): UIState {
     const parsed = readJSON<Persisted>(STORAGE_KEY);
     if (parsed) {
       if (parsed.report?.pages?.length) {
-        const rows = readJSON<DataSource>(SOURCE_KEY) ?? parsed.source ?? null;
+        const rows = parsed.source ?? null;
         return {
           report: parsed.report,
           source: rows,
@@ -143,6 +143,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const [cloudReady, setCloudReady] = useState(false);
   const [cloudTick, setCloudTick] = useState(0);
   const lastPushed = useRef("");
+  /** Set once the cloud copy has been applied, so a late local hydrate can't win the race. */
+  const cloudApplied = useRef(false);
+  const sourceRef = useRef<DataSource | null>(source);
   const token = session?.idToken ?? null;
   const uid = session?.uid ?? null;
   // A click on a chart narrows every other chart; the chart that was clicked
@@ -176,27 +179,52 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     if (viewMode || isShareHash()) return;
     // Only when the rows themselves change (import, clear), never on a filter click.
     const id = window.setTimeout(() => {
-      try {
-        if (!source) {
-          localStorage.removeItem(SOURCE_KEY);
-          return;
-        }
-        writeJSON(SOURCE_KEY, source);
-        quotaWarned.current = false;
-      } catch (e) {
-        try {
-          localStorage.removeItem(SOURCE_KEY);
-        } catch {
-          /* ignore */
-        }
-        if (e instanceof QuotaError && !quotaWarned.current) {
-          quotaWarned.current = true;
-          setToast("Data too large to autosave — layout saved");
-        }
+      if (!source) {
+        void idbDelete("source");
+        removeKey(SOURCE_KEY);
+        return;
       }
+      idbSet("source", source)
+        .then(() => {
+          quotaWarned.current = false;
+        })
+        .catch((e: unknown) => {
+          if (!quotaWarned.current) {
+            quotaWarned.current = true;
+            setToast(
+              e instanceof QuotaError
+                ? "Data too large to autosave — layout saved"
+                : "Could not save data locally — layout saved",
+            );
+          }
+        });
     }, 800);
     return () => window.clearTimeout(id);
   }, [source, viewMode]);
+
+  // Rows are too big for localStorage, so they are hydrated from IndexedDB after
+  // the first paint. Anything left in the old localStorage key is migrated once.
+  useEffect(() => {
+    if (isShareHash()) return;
+    let alive = true;
+    (async () => {
+      const stored = await idbGet<DataSource>("source");
+      const legacy = stored ? null : readJSON<DataSource>(SOURCE_KEY);
+      const next = stored ?? legacy;
+      if (legacy) {
+        await idbSet("source", legacy).catch(() => undefined);
+        removeKey(SOURCE_KEY);
+      }
+      if (alive && next && !cloudApplied.current && !sourceRef.current) dispatch({ type: "setSource", source: next });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    sourceRef.current = source;
+  }, [source]);
 
   useEffect(() => {
     document.title = `${report.title} · StudioKit`;
@@ -211,12 +239,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     }
     let alive = true;
     pullWorkspace(token, uid)
-      .then((payload) => {
+      .then(async (payload) => {
         if (!alive || !payload) return;
-        const remote = decodeWorkspace(payload);
-        if (!remote) return;
+        const remote = await decodeWorkspaceAsync(payload);
+        if (!alive || !remote) return;
         lastPushed.current = payload;
         if (report.pages.some((p) => p.charts.length > 0)) return;
+        cloudApplied.current = true;
         dispatch({ type: "setSource", source: remote.source, report: remote.report });
         if (listTemplates().length === 0 && remote.templates?.length) replaceTemplates(remote.templates);
         setToast("Loaded your dashboard from the cloud");
@@ -240,18 +269,19 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     if (!source && report.pages.every((p) => p.charts.length === 0)) return;
     const id = window.setTimeout(() => {
       const workspace: Workspace = { report, source, templates: listTemplates(), savedAt: Date.now() };
-      const { payload, trimmedRows, trimmedTemplates } = fitWorkspace(workspace);
-      if (payload === lastPushed.current) return;
-      pushWorkspace(payload, token, uid)
-        .then(() => {
-          lastPushed.current = payload;
-        })
-        .catch(() => {
-          /* keep working locally; the next edit retries */
-        });
-      if (trimmedRows || trimmedTemplates) {
-        setToast("Cloud copy is trimmed to fit — this browser still keeps every row");
-      }
+      void fitWorkspace(workspace).then(({ payload, trimmedRows, trimmedTemplates }) => {
+        if (payload === lastPushed.current) return;
+        pushWorkspace(payload, token, uid)
+          .then(() => {
+            lastPushed.current = payload;
+          })
+          .catch(() => {
+            /* keep working locally; the next edit retries */
+          });
+        if (trimmedRows || trimmedTemplates) {
+          setToast("Cloud copy is trimmed to fit — this browser still keeps every row");
+        }
+      });
     }, 2500);
     return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
