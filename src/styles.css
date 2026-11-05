@@ -411,13 +411,16 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  /* Same height as the select and the value picker next to it: a shorter button
+     sits 3px proud of the row and reads as a broken line. */
+  width: 24px;
+  height: 28px;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 7px;
   background: #fff;
   color: var(--muted);
+  flex: 0 0 auto;
 }
 
 .filter-mode:hover:not(:disabled) {
