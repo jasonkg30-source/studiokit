@@ -16,28 +16,65 @@ service cloud.firestore {
     // key never leaves the sharer's browser (it rides in the URL fragment).
     // Anything above one document is split into `parts`.
     match /shares/{shareId} {
-      allow read: if true;
+      function self() {
+        return signedIn() && request.auth.uid == resource.data.o;
+      }
+      function notExpired() {
+        return !('e' in resource.data) || resource.data.e > request.time.toMillis();
+      }
+
+      // Anyone with the link may read an active share; the owner may always read
+      // their own, even after it expired, so it can still be renamed or deleted.
+      allow get: if self() || notExpired();
+      // "My links" only ever queries by owner, which is what makes this provable.
+      allow list: if signedIn()
+                   && request.query.limit <= 200
+                   && request.auth.uid == resource.data.o;
+
       // Only signed-in team members may store a link. The document holds nothing
-      // but the encrypted payload (or its part count) and the encryption params.
-      allow create: if request.auth != null
-                    && request.resource.data.keys().hasOnly(['p', 't', 'm', 's', 'i', 'n'])
+      // but the encrypted payload (or its part count), the encryption params and
+      // who owns it.
+      allow create: if signedIn()
+                    && request.resource.data.keys().hasOnly(['p', 't', 'm', 's', 'i', 'n', 'o', 'l', 'e'])
+                    && request.resource.data.o == request.auth.uid
                     && request.resource.data.t is int
                     && (
                       (request.resource.data.p is string && request.resource.data.p.size() <= 900000)
                       || (request.resource.data.n is int && request.resource.data.n > 0 && request.resource.data.n <= 32)
                     )
-                    && (!('m' in request.resource.data) || request.resource.data.m == 'pw');
-      allow update, delete: if false;
+                    && (!('m' in request.resource.data) || request.resource.data.m == 'pw')
+                    && (!('l' in request.resource.data)
+                        || (request.resource.data.l is string && request.resource.data.l.size() <= 80))
+                    && (!('e' in request.resource.data) || request.resource.data.e is int);
+
+      // The ciphertext is immutable; only the label and the expiry can change.
+      allow update: if self()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['l', 'e'])
+                    && (!('l' in request.resource.data)
+                        || (request.resource.data.l is string && request.resource.data.l.size() <= 80))
+                    && (!('e' in request.resource.data) || request.resource.data.e is int);
+
+      allow delete: if self();
 
       match /parts/{index} {
-        allow read: if true;
-        // Parts are written once, right after the manifest; nothing may rewrite them.
-        allow create: if request.auth != null
+        function owner() {
+          return signedIn() && get(/databases/$(database)/documents/shares/$(shareId)).data.o == request.auth.uid;
+        }
+        function active() {
+          return !('e' in get(/databases/$(database)/documents/shares/$(shareId)).data)
+                 || get(/databases/$(database)/documents/shares/$(shareId)).data.e > request.time.toMillis();
+        }
+
+        allow get: if owner() || active();
+        // Parts are written once, right after the manifest, by the same owner.
+        allow create: if owner()
                       && !exists(/databases/$(database)/documents/shares/$(shareId)/parts/$(index))
                       && request.resource.data.p is string
                       && request.resource.data.p.size() <= 750000
                       && request.resource.data.keys().hasOnly(['p']);
-        allow update, delete: if false;
+        // Deleting a link removes its parts first, so this is the normal path.
+        allow delete: if owner();
+        allow update: if false;
       }
     }
 

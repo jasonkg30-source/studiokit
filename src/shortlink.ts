@@ -105,7 +105,11 @@ async function loadDoc(id: string): Promise<ShareDoc> {
   const hit = cache.get(id);
   if (hit) return hit;
   const res = await fetch(`${BASE}/${encodeURIComponent(id)}?key=${encodeURIComponent(cfg.apiKey)}`);
-  if (!res.ok) throw new Error(res.status === 404 ? "This link no longer exists." : "Could not open the shared dashboard.");
+  if (!res.ok) {
+    // 403 here means the security rules refused it: expired or deleted by its owner.
+    if (res.status === 404 || res.status === 403) throw new Error("This link has ended — ask the owner for a new one.");
+    throw new Error("Could not open the shared dashboard.");
+  }
   const doc = await res.json();
   const fields = doc?.fields ?? {};
   let cipher: string | undefined = fields?.p?.stringValue;
@@ -123,15 +127,79 @@ async function loadDoc(id: string): Promise<ShareDoc> {
   return parsed;
 }
 
+/** Everything the "My links" screen needs; no ciphertext, no key. */
+export type ShareSummary = {
+  id: string;
+  title: string;
+  createdAt: number;
+  /** Epoch millis, or null for "no expiry". */
+  expiresAt: number | null;
+  password: boolean;
+  parts: number;
+};
+
+type FieldValue = { stringValue?: string; integerValue?: string };
+
+/** The ID token is signed by Firebase; the rules verify it, we only read the uid. */
+export function uidFromToken(idToken: string): string {
+  try {
+    const part = idToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(part.padEnd(Math.ceil(part.length / 4) * 4, "=")));
+    return String(payload.user_id ?? payload.sub ?? "");
+  } catch {
+    return "";
+  }
+}
+
+// The URL fragment holds the key, so it can never be rebuilt from the server.
+// Copying a link again is only possible on the browser that created it.
+const LINKS_KEY = "studiokit.share.links";
+
+export function rememberLink(id: string, url: string): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(LINKS_KEY) ?? "{}") as Record<string, string>;
+    all[id] = url;
+    localStorage.setItem(LINKS_KEY, JSON.stringify(all));
+  } catch {
+    // Private mode or a full quota: the link simply can't be re-copied here.
+  }
+}
+
+export function rememberedLink(id: string): string | null {
+  try {
+    const all = JSON.parse(localStorage.getItem(LINKS_KEY) ?? "{}") as Record<string, string>;
+    return all[id] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetLink(id: string): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(LINKS_KEY) ?? "{}") as Record<string, string>;
+    delete all[id];
+    localStorage.setItem(LINKS_KEY, JSON.stringify(all));
+  } catch {
+    /* nothing to clean up */
+  }
+}
+
 /**
  * Creates an encrypted share. With a password the link carries no key at all:
  * the key is derived from the password with PBKDF2 and a per-share salt.
  * The key is returned only for password-less links.
  */
-export async function createShare(json: string, password?: string, idToken?: string | null): Promise<{ id: string; key?: string }> {
+export async function createShare(
+  json: string,
+  password?: string,
+  idToken?: string | null,
+  meta?: { title?: string; expiresAt?: number | null },
+): Promise<{ id: string; key?: string }> {
   if (!idToken) throw new Error("Sign in to create a short link.");
+  const owner = uidFromToken(idToken);
+  if (!owner) throw new Error("Your session expired — sign in again to create a link.");
   const trimmed = password?.trim();
-  let fields: Record<string, { stringValue?: string; integerValue?: string }>;
+  let fields: Record<string, FieldValue>;
   let exported: string | undefined;
 
   let cipher: string;
@@ -152,6 +220,13 @@ export async function createShare(json: string, password?: string, idToken?: str
     cipher = await sealWith(json, key);
     fields = { t: { integerValue: String(Date.now()) } };
   }
+
+  // Ownership is stored so the creator can list, rename, expire and delete the
+  // link later; nothing about it helps a recipient.
+  fields.o = { stringValue: owner };
+  const title = meta?.title?.trim();
+  if (title) fields.l = { stringValue: title.slice(0, 80) };
+  if (meta?.expiresAt) fields.e = { integerValue: String(meta.expiresAt) };
 
   // A 100k-row dashboard encrypts to a couple of megabytes, so the payload is
   // spread over part documents and the manifest only carries the count.
@@ -209,4 +284,115 @@ export async function readShareWithPassword(id: string, password: string): Promi
   } catch {
     throw new Error("Wrong password.");
   }
+}
+
+const ROOT = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/default/documents`;
+
+type DocFields = Record<string, FieldValue & { timerValue?: unknown }>;
+
+const authHeaders = (idToken: string) => ({
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${idToken}`,
+});
+
+/**
+ * Links created before ownership was recorded have no `o` field and can never be
+ * matched to an account, so they simply don't show up here.
+ */
+export async function listShares(idToken: string): Promise<ShareSummary[]> {
+  const owner = uidFromToken(idToken);
+  if (!owner) throw new Error("Your session expired — sign in again.");
+  const res = await fetch(`${ROOT}:runQuery?key=${encodeURIComponent(cfg.apiKey)}`, {
+    method: "POST",
+    headers: authHeaders(idToken),
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: "shares" }],
+        // The rules only allow a list query that filters on the caller's own uid.
+        where: { fieldFilter: { field: { fieldPath: "o" }, op: "EQUAL", value: { stringValue: owner } } },
+        limit: 100,
+      },
+    }),
+  });
+  if (res.status === 401 || res.status === 403) throw new Error("Your session expired — sign in again.");
+  if (!res.ok) throw new Error("Could not load your links.");
+  const rows = (await res.json()) as Array<{ document?: { name?: string; fields?: DocFields } }>;
+  return rows
+    .map((row) => row.document)
+    .filter((doc): doc is { name: string; fields?: DocFields } => Boolean(doc?.name))
+    .map((doc) => {
+      const fields = doc.fields ?? {};
+      const expires = fields.e?.integerValue ? Number(fields.e.integerValue) : null;
+      return {
+        id: String(doc.name).split("/").pop() ?? "",
+        title: fields.l?.stringValue ?? "",
+        createdAt: Number(fields.t?.integerValue ?? 0),
+        expiresAt: expires,
+        password: fields.m?.stringValue === "pw",
+        parts: Number(fields.n?.integerValue ?? 0),
+      };
+    })
+    .filter((share) => share.id)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Same link id, new label and/or expiry. `null` removes the expiry. */
+export async function updateShare(
+  id: string,
+  idToken: string,
+  patch: { title?: string; expiresAt?: number | null },
+): Promise<void> {
+  const mask: string[] = [];
+  const fields: Record<string, FieldValue> = {};
+  if (patch.title !== undefined) {
+    mask.push("l");
+    // An empty title clears the field instead of storing a blank one.
+    const title = patch.title.trim().slice(0, 80);
+    if (title) fields.l = { stringValue: title };
+  }
+  if (patch.expiresAt !== undefined) {
+    mask.push("e");
+    if (patch.expiresAt !== null) fields.e = { integerValue: String(patch.expiresAt) };
+  }
+  if (!mask.length) return;
+  const query = mask.map((field) => `updateMask.fieldPaths=${field}`).join("&");
+  const res = await fetch(`${BASE}/${encodeURIComponent(id)}?key=${encodeURIComponent(cfg.apiKey)}&${query}`, {
+    method: "PATCH",
+    headers: authHeaders(idToken),
+    body: JSON.stringify({ fields }),
+  });
+  if (res.status === 401 || res.status === 403) throw new Error("Only the owner can change this link.");
+  if (!res.ok) throw new Error("Could not update the link.");
+}
+
+/**
+ * Deletes the parts first: losing the manifest would strand megabytes of
+ * ciphertext that nothing can ever reach again.
+ */
+export async function deleteShare(id: string, idToken: string): Promise<void> {
+  const head = await fetch(`${BASE}/${encodeURIComponent(id)}?key=${encodeURIComponent(cfg.apiKey)}`, {
+    headers: authHeaders(idToken),
+  });
+  if (!head.ok && head.status !== 404) throw new Error("Could not find the link to delete.");
+  const count = head.ok ? Number(((await head.json())?.fields?.n?.integerValue as string) ?? 0) : 0;
+
+  if (count > 0) {
+    const parts = await Promise.all(
+      Array.from({ length: count }, (_, index) =>
+        fetch(`${BASE}/${encodeURIComponent(id)}/parts/${index}?key=${encodeURIComponent(cfg.apiKey)}`, {
+          method: "DELETE",
+          headers: authHeaders(idToken),
+        }),
+      ),
+    );
+    if (parts.some((res) => !res.ok && res.status !== 404)) throw new Error("Could not delete every part of the link.");
+  }
+
+  const res = await fetch(`${BASE}/${encodeURIComponent(id)}?key=${encodeURIComponent(cfg.apiKey)}`, {
+    method: "DELETE",
+    headers: authHeaders(idToken),
+  });
+  if (!res.ok && res.status !== 404) throw new Error("Could not delete the link.");
+  cache.delete(id);
+  forgetLink(id);
 }

@@ -1,9 +1,17 @@
-import { useMemo, useState } from "react";
-import { Copy, Download, FileUp, Link2, Lock, Printer, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Copy, Download, FileUp, Link2, Lock, Printer, Trash2, X } from "lucide-react";
 import { compressToEncodedURIComponent } from "lz-string";
 import type { DataSource, Report } from "../types";
 import { downloadReport, readReportFile } from "../save";
-import { createShare } from "../shortlink";
+import {
+  createShare,
+  deleteShare,
+  listShares,
+  rememberedLink,
+  rememberLink,
+  updateShare,
+  type ShareSummary,
+} from "../shortlink";
 
 const PASSWORD_MIN = 10;
 
@@ -11,6 +19,25 @@ const MAX_ROWS = 2000;
 /** A long URL can't carry much; short links are stored and can hold ~500k rows. */
 const SHORT_LIMIT = 40_000_000;
 const SHORT_KEEP = 50_000;
+
+const DAY = 86_400_000;
+/** Options offered when a link is created or its expiry is changed. */
+const EXPIRY_CHOICES: Array<{ days: number; label: string }> = [
+  { days: 0, label: "No expiry" },
+  { days: 1, label: "1 day" },
+  { days: 7, label: "7 days" },
+  { days: 30, label: "30 days" },
+];
+
+const expiryAt = (days: number): number | null => (days > 0 ? Date.now() + days * DAY : null);
+
+function expiryLabel(expiresAt: number | null): string {
+  if (!expiresAt) return "No expiry";
+  const left = expiresAt - Date.now();
+  if (left <= 0) return "Expired";
+  if (left < DAY) return "Ends today";
+  return `${Math.ceil(left / DAY)}d left`;
+}
 
 interface Props {
   report: Report;
@@ -35,7 +62,21 @@ function encodePayload(report: Report, source: DataSource | null): string {
   return compressToEncodedURIComponent(JSON.stringify(payload));
 }
 
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const el = document.createElement("textarea");
+    el.value = text;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand("copy");
+    el.remove();
+  }
+}
+
 export default function ShareModal({ report, source, onClose, readOnly, idToken, onImport }: Props) {
+  const [tab, setTab] = useState<"link" | "manage">("link");
   const [copied, setCopied] = useState(false);
   const [shortCopied, setShortCopied] = useState(false);
   const [error, setError] = useState("");
@@ -44,6 +85,15 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
   const [pw, setPw] = useState("");
   const [pwMode, setPwMode] = useState(false);
   const [shortPw, setShortPw] = useState(false);
+  const [title, setTitle] = useState("");
+  const [expiryDays, setExpiryDays] = useState(0);
+  const [copiedBoth, setCopiedBoth] = useState(false);
+
+  const [shares, setShares] = useState<ShareSummary[]>([]);
+  const [loadingShares, setLoadingShares] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const link = useMemo(() => {
     try {
@@ -63,6 +113,22 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
     return { payloadJson: cut, shortComplete: false, shortRows: Math.min(SHORT_KEEP, total) };
   }, [report, source]);
 
+  const refreshShares = useCallback(async () => {
+    if (!idToken) return;
+    setLoadingShares(true);
+    try {
+      setShares(await listShares(idToken));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load your links.");
+    } finally {
+      setLoadingShares(false);
+    }
+  }, [idToken]);
+
+  useEffect(() => {
+    void refreshShares();
+  }, [refreshShares]);
+
   const makeShort = async () => {
     setError("");
     if (!idToken) {
@@ -75,10 +141,17 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
     }
     setBusy(true);
     try {
-      const { id, key } = await createShare(payloadJson, pwMode ? pw : undefined, idToken);
+      const { id, key } = await createShare(payloadJson, pwMode ? pw : undefined, idToken, {
+        title,
+        expiresAt: expiryAt(expiryDays),
+      });
       const base = `${window.location.origin}${window.location.pathname}#s=${id}`;
-      setShort(key ? `${base}&k=${key}` : base);
+      const url = key ? `${base}&k=${key}` : base;
+      setShort(url);
       setShortPw(!key);
+      // The key lives in the fragment, so this is the only chance to keep the URL.
+      rememberLink(id, url);
+      await refreshShares();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the link.");
     } finally {
@@ -86,39 +159,66 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
     }
   };
 
-  const [copiedBoth, setCopiedBoth] = useState(false);
-
   const copyLinkAndPassword = async () => {
     if (!short) return;
-    const text = `${short}\nPassword: ${pw}`;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const el = document.createElement("textarea");
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      el.remove();
-    }
+    await copyText(`${short}\nPassword: ${pw}`);
     setCopiedBoth(true);
     setTimeout(() => setCopiedBoth(false), 1800);
   };
 
   const copyShort = async () => {
     if (!short) return;
-    try {
-      await navigator.clipboard.writeText(short);
-    } catch {
-      const el = document.createElement("textarea");
-      el.value = short;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      el.remove();
-    }
+    await copyText(short);
     setShortCopied(true);
     setTimeout(() => setShortCopied(false), 1800);
+  };
+
+  const copyManaged = async (id: string, url: string) => {
+    await copyText(url);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1800);
+  };
+
+  const changeTitle = async (id: string, value: string) => {
+    if (!idToken) return;
+    setRowBusy(id);
+    try {
+      await updateShare(id, idToken, { title: value });
+      setShares((list) => list.map((share) => (share.id === id ? { ...share, title: value.trim() } : share)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not rename the link.");
+    } finally {
+      setRowBusy(null);
+    }
+  };
+
+  const changeExpiry = async (id: string, days: number) => {
+    if (!idToken) return;
+    setRowBusy(id);
+    try {
+      const expiresAt = expiryAt(days);
+      await updateShare(id, idToken, { expiresAt });
+      setShares((list) => list.map((share) => (share.id === id ? { ...share, expiresAt } : share)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not change the expiry.");
+    } finally {
+      setRowBusy(null);
+    }
+  };
+
+  const removeShare = async (id: string) => {
+    if (!idToken) return;
+    setRowBusy(id);
+    try {
+      await deleteShare(id, idToken);
+      setShares((list) => list.filter((share) => share.id !== id));
+      setPendingDelete(null);
+      if (short?.includes(`#s=${id}`)) setShort(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete the link.");
+    } finally {
+      setRowBusy(null);
+    }
   };
 
   const truncated = (source?.rows.length ?? 0) > MAX_ROWS;
@@ -130,16 +230,7 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
   const tooBig = sizeKb > 8;
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(link);
-    } catch {
-      const el = document.createElement("textarea");
-      el.value = link;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      el.remove();
-    }
+    await copyText(link);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
@@ -153,6 +244,8 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
     }
   };
 
+  const liveCount = shares.filter((share) => !share.expiresAt || share.expiresAt > Date.now()).length;
+
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -163,111 +256,239 @@ export default function ShareModal({ report, source, onClose, readOnly, idToken,
           </button>
         </div>
 
-        <p className="hint">
-          Short links store the dashboard encrypted, so the server only ever holds scrambled data. Without a password
-          the key rides in the link itself; with a password the key is derived from it and the link stays bare.
-        </p>
-
-        {noData && (
-          <p className="notice warn">
-            No data is loaded in this dashboard, so a link created now would open empty for everyone. Add the data first
-            (Data → CSV / Excel), then share.
-          </p>
-        )}
-
-        <div className="share-mode">
-          <label className={`mode-card ${!pwMode ? "on" : ""}`}>
-            <input type="radio" checked={!pwMode} onChange={() => setPwMode(false)} />
-            <span>
-              <strong>Anyone with the link</strong>
-              <em>Key is inside the link — 99 char URL, no typing for the team.</em>
-            </span>
-          </label>
-          <label className={`mode-card ${pwMode ? "on" : ""}`}>
-            <input type="radio" checked={pwMode} onChange={() => setPwMode(true)} />
-            <span>
-              <strong>Password</strong>
-              <em>Shortest link — the team types a shared password to open it.</em>
-            </span>
-          </label>
-        </div>
-
-        {pwMode && (
-          <div className="share-row">
-            <input
-              className="text-input"
-              type="password"
-              placeholder="Team password (min 4 characters)"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              autoComplete="new-password"
-            />
-            <span className="hint"><Lock size={12} /> never stored</span>
-          </div>
-        )}
-
-        <div className="share-row">
-          <input
-            className="text-input mono"
-            readOnly
-            value={short ?? link}
-            onFocus={(e) => e.currentTarget.select()}
-          />
-          <button className="btn primary" onClick={short ? copyShort : copy} disabled={!link || noData || (!short && tooBig)}>
-            <Copy size={14} />{" "}
-            {short
-              ? shortCopied
-                ? "Copied"
-                : "Copy link"
-              : tooBig
-                ? "Too long — use a short link"
-                : copied
-                  ? "Copied"
-                  : "Copy long link"}
+        <div className="share-tabs">
+          <button className={`share-tab ${tab === "link" ? "on" : ""}`} onClick={() => setTab("link")}>
+            Create link
+          </button>
+          <button className={`share-tab ${tab === "manage" ? "on" : ""}`} onClick={() => setTab("manage")}>
+            My links{idToken ? ` (${liveCount})` : ""}
           </button>
         </div>
 
-        <div className="share-row">
-          <button className="btn ghost" onClick={makeShort} disabled={busy || !link || noData || !idToken}>
-            {pwMode ? <Lock size={14} /> : <Link2 size={14} />}{" "}
-            {busy ? "Encrypting…" : short ? "Make another link" : pwMode ? "Create password link" : "Create short link"}
-          </button>
-          {!idToken ? (
-            <span className="hint">Sign in to create short links</span>
-          ) : short ? (
-            <span className="hint">
-              {(short.length).toLocaleString()} chars · {shortPw ? "password required" : "key in the link"}
-            </span>
-          ) : null}
-        </div>
-
-        {shortPw && (
-          <div className="share-pw">
-            <p>
-              This link opens nothing without the password. Send both — receivers see a password screen and stop there
-              otherwise.
+        {tab === "link" ? (
+          <>
+            <p className="hint">
+              Short links store the dashboard encrypted, so the server only ever holds scrambled data. Without a
+              password the key rides in the link itself; with a password the key is derived from it and the link stays
+              bare.
             </p>
+
+            {noData && (
+              <p className="notice warn">
+                No data is loaded in this dashboard, so a link created now would open empty for everyone. Add the data
+                first (Data → CSV / Excel), then share.
+              </p>
+            )}
+
+            <div className="share-mode">
+              <label className={`mode-card ${!pwMode ? "on" : ""}`}>
+                <input type="radio" checked={!pwMode} onChange={() => setPwMode(false)} />
+                <span>
+                  <strong>Anyone with the link</strong>
+                  <em>Key is inside the link — 99 char URL, no typing for the team.</em>
+                </span>
+              </label>
+              <label className={`mode-card ${pwMode ? "on" : ""}`}>
+                <input type="radio" checked={pwMode} onChange={() => setPwMode(true)} />
+                <span>
+                  <strong>Password</strong>
+                  <em>Shortest link — the team types a shared password to open it.</em>
+                </span>
+              </label>
+            </div>
+
+            {pwMode && (
+              <div className="share-row">
+                <input
+                  className="text-input"
+                  type="password"
+                  placeholder="Team password (min 10 characters)"
+                  value={pw}
+                  onChange={(e) => setPw(e.target.value)}
+                  autoComplete="new-password"
+                />
+                <span className="hint">
+                  <Lock size={12} /> never stored
+                </span>
+              </div>
+            )}
+
             <div className="share-row">
-              <code className="mono">{pw}</code>
-              <button className="btn primary" onClick={copyLinkAndPassword}>
-                <Copy size={14} /> {copiedBoth ? "Copied" : "Copy link + password"}
+              <input
+                className="text-input"
+                placeholder="Name this link (optional) — e.g. Q4 revenue"
+                value={title}
+                maxLength={80}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+              <select
+                className="text-input select"
+                value={expiryDays}
+                onChange={(e) => setExpiryDays(Number(e.target.value))}
+                title="Stop working automatically"
+              >
+                {EXPIRY_CHOICES.map((choice) => (
+                  <option key={choice.days} value={choice.days}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="share-row">
+              <input
+                className="text-input mono"
+                readOnly
+                value={short ?? link}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button
+                className="btn primary"
+                onClick={short ? copyShort : copy}
+                disabled={!link || noData || (!short && tooBig)}
+              >
+                <Copy size={14} />{" "}
+                {short
+                  ? shortCopied
+                    ? "Copied"
+                    : "Copy link"
+                  : tooBig
+                    ? "Too long — use a short link"
+                    : copied
+                      ? "Copied"
+                      : "Copy long link"}
               </button>
             </div>
-          </div>
-        )}
 
-        <div className="share-meta">
-          <span className={`pill ${sizeKb > 8 ? "warn" : ""}`}>
-            <Link2 size={12} /> {sizeKb.toLocaleString()} KB link
-          </span>
-          {truncated && <span className="pill warn">Long link: first {MAX_ROWS.toLocaleString()} rows</span>}
-          {short && (
-            <span className={`pill ${shortComplete ? "" : "warn"}`}>
-              {shortComplete ? `All ${(source?.rows.length ?? 0).toLocaleString()} rows` : `Short link: first ${shortRows.toLocaleString()} rows`}
-            </span>
-          )}
-          {tooBig && <span className="pill warn">Chat apps cut links this long — create a short link</span>}
-        </div>
+            <div className="share-row">
+              <button className="btn ghost" onClick={makeShort} disabled={busy || !link || noData || !idToken}>
+                {pwMode ? <Lock size={14} /> : <Link2 size={14} />}{" "}
+                {busy ? "Encrypting…" : short ? "Make another link" : pwMode ? "Create password link" : "Create short link"}
+              </button>
+              {!idToken ? (
+                <span className="hint">Sign in to create short links</span>
+              ) : short ? (
+                <span className="hint">
+                  {short.length.toLocaleString()} chars · {shortPw ? "password required" : "key in the link"}
+                </span>
+              ) : null}
+            </div>
+
+            {shortPw && (
+              <div className="share-pw">
+                <p>
+                  This link opens nothing without the password. Send both — receivers see a password screen and stop
+                  there otherwise.
+                </p>
+                <div className="share-row">
+                  <code className="mono">{pw}</code>
+                  <button className="btn primary" onClick={copyLinkAndPassword}>
+                    <Copy size={14} /> {copiedBoth ? "Copied" : "Copy link + password"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="share-meta">
+              <span className={`pill ${sizeKb > 8 ? "warn" : ""}`}>
+                <Link2 size={12} /> {sizeKb.toLocaleString()} KB link
+              </span>
+              {truncated && <span className="pill warn">Long link: first {MAX_ROWS.toLocaleString()} rows</span>}
+              {short && (
+                <span className={`pill ${shortComplete ? "" : "warn"}`}>
+                  {shortComplete
+                    ? `All ${(source?.rows.length ?? 0).toLocaleString()} rows`
+                    : `Short link: first ${shortRows.toLocaleString()} rows`}
+                </span>
+              )}
+              {tooBig && <span className="pill warn">Chat apps cut links this long — create a short link</span>}
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="hint">
+              Links you created while signed in. Stop sharing by deleting a link — it stops working immediately for
+              everyone. Links made before this update have no owner on record, so they can't appear here.
+            </p>
+
+            {!idToken && <p className="notice warn">Sign in to manage the links you've shared.</p>}
+
+            {idToken && loadingShares && <p className="hint">Loading your links…</p>}
+
+            {idToken && !loadingShares && !shares.length && (
+              <p className="notice">No links yet. Create one from the “Create link” tab.</p>
+            )}
+
+            <div className="share-list">
+              {shares.map((share) => {
+                const expired = Boolean(share.expiresAt && share.expiresAt <= Date.now());
+                const url = rememberedLink(share.id);
+                return (
+                  <div className={`share-item ${expired ? "dead" : ""}`} key={share.id}>
+                    <div className="share-item-head">
+                      <input
+                        className="text-input"
+                        defaultValue={share.title}
+                        placeholder="Untitled link"
+                        maxLength={80}
+                        disabled={rowBusy === share.id}
+                        onBlur={(e) => {
+                          if (e.target.value !== share.title) void changeTitle(share.id, e.target.value);
+                        }}
+                      />
+                      <span className={`pill ${expired ? "warn" : ""}`}>{expiryLabel(share.expiresAt)}</span>
+                    </div>
+
+                    <div className="share-item-meta">
+                      <span className="pill">{share.password ? <Lock size={11} /> : <Link2 size={11} />}
+                        {share.password ? " Password" : " Key in link"}
+                      </span>
+                      <span className="hint">Created {new Date(share.createdAt).toLocaleDateString()}</span>
+                      <select
+                        className="text-input select tiny"
+                        value={0}
+                        disabled={rowBusy === share.id}
+                        onChange={(e) => void changeExpiry(share.id, Number(e.target.value))}
+                        title="Change expiry"
+                      >
+                        <option value={0}>{share.expiresAt ? "Change expiry…" : "No expiry"}</option>
+                        {EXPIRY_CHOICES.filter((choice) => choice.days > 0).map((choice) => (
+                          <option key={choice.days} value={choice.days}>
+                            {choice.label} from now
+                          </option>
+                        ))}
+                        {share.expiresAt && <option value={-1}>Remove expiry</option>}
+                      </select>
+                    </div>
+
+                    <div className="share-item-actions">
+                      {url ? (
+                        <button className="btn ghost sm" onClick={() => void copyManaged(share.id, url)}>
+                          <Copy size={13} /> {copiedId === share.id ? "Copied" : "Copy"}
+                        </button>
+                      ) : (
+                        <span className="hint">Link can only be re-copied on the device that made it</span>
+                      )}
+                      {pendingDelete === share.id ? (
+                        <button
+                          className="btn danger sm"
+                          disabled={rowBusy === share.id}
+                          onClick={() => void removeShare(share.id)}
+                        >
+                          <Trash2 size={13} /> {rowBusy === share.id ? "Deleting…" : "Confirm delete"}
+                        </button>
+                      ) : (
+                        <button className="btn ghost sm" onClick={() => setPendingDelete(share.id)}>
+                          <Trash2 size={13} /> Stop sharing
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
 
         <div className="modal-foot">
           <button className="btn ghost" onClick={() => downloadReport(report, source)}>
