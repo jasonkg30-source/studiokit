@@ -64,6 +64,11 @@ export function deleteTemplate(id: string) {
   persist(listTemplates().filter((t) => t.id !== id));
 }
 
+/** Used when a workspace arrives from another machine and this one has no templates yet. */
+export function replaceTemplates(all: SavedTemplate[]) {
+  persist(all);
+}
+
 export function templateBytes(): number {
   return rawBytes(KEY);
 }

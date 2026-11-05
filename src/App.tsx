@@ -22,13 +22,14 @@ import {
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
-import { listTemplates } from "./templates";
+import { listTemplates, replaceTemplates } from "./templates";
 import LeftPanel from "./components/LeftPanel";
 import MultiSelect from "./components/MultiSelect";
 import TemplateModal from "./components/TemplateModal";
 import { saveTemplate, type SavedTemplate } from "./templates";
 import { QuotaError, readJSON, writeJSON } from "./storage";
 import { PasswordRequired, readShare, readShareWithPassword } from "./shortlink";
+import { decodeWorkspace, fitWorkspace, pullWorkspace, pushWorkspace, type Workspace } from "./cloud";
 import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
@@ -118,7 +119,7 @@ function initialState(): UIState {
 }
 
 interface AppProps {
-  session?: { name: string; email: string; role: "owner" | "member"; idToken?: string } | null;
+  session?: { name: string; email: string; role: "owner" | "member"; uid?: string; idToken?: string } | null;
   onSignOut?: () => void;
   onOpenAdmin?: () => void;
 }
@@ -137,6 +138,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const [gateError, setGateError] = useState("");
   const [gateBusy, setGateBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Cloud sync: the workspace lives in Firestore under the signed-in uid, so the
+  // same account on another machine opens the same dashboard.
+  const [cloudReady, setCloudReady] = useState(false);
+  const [cloudTick, setCloudTick] = useState(0);
+  const lastPushed = useRef("");
+  const token = session?.idToken ?? null;
+  const uid = session?.uid ?? null;
   // A click on a chart narrows every other chart; the chart that was clicked
   // keeps its own values so more of them can be picked (see crossfilter.ts).
   const [focuses, setFocuses] = useState<Focus[]>([]);
@@ -193,6 +201,61 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   useEffect(() => {
     document.title = `${report.title} · StudioKit`;
   }, [report.title]);
+
+  // Pull the stored workspace once per session; only replaces an empty local one,
+  // so a machine that already has work never gets clobbered by an older copy.
+  useEffect(() => {
+    if (!token || !uid || viewMode || isShareHash()) {
+      setCloudReady(true);
+      return;
+    }
+    let alive = true;
+    pullWorkspace(token, uid)
+      .then((payload) => {
+        if (!alive || !payload) return;
+        const remote = decodeWorkspace(payload);
+        if (!remote) return;
+        lastPushed.current = payload;
+        if (report.pages.some((p) => p.charts.length > 0)) return;
+        dispatch({ type: "setSource", source: remote.source, report: remote.report });
+        if (listTemplates().length === 0 && remote.templates?.length) replaceTemplates(remote.templates);
+        setToast("Loaded your dashboard from the cloud");
+      })
+      .catch(() => {
+        // Offline or expired token: carry on with the local copy.
+      })
+      .finally(() => {
+        if (alive) setCloudReady(true);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, uid]);
+
+  // Push after edits settle. The local autosave above stays the source of truth
+  // when the network or the quota says no.
+  useEffect(() => {
+    if (!token || !uid || viewMode || isShareHash() || !cloudReady) return;
+    if (!source && report.pages.every((p) => p.charts.length === 0)) return;
+    const id = window.setTimeout(() => {
+      const workspace: Workspace = { report, source, templates: listTemplates(), savedAt: Date.now() };
+      const { payload, trimmedRows, trimmedTemplates } = fitWorkspace(workspace);
+      if (payload === lastPushed.current) return;
+      pushWorkspace(payload, token, uid)
+        .then(() => {
+          lastPushed.current = payload;
+        })
+        .catch(() => {
+          /* keep working locally; the next edit retries */
+        });
+      if (trimmedRows || trimmedTemplates) {
+        setToast("Cloud copy is trimmed to fit — this browser still keeps every row");
+      }
+    }, 2500);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report, source, cloudReady, cloudTick, token, uid]);
 
   const applyShared = (payload: unknown) => {
     const shared = payload as { r: Report; s: DataSource | null };
@@ -461,6 +524,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                         : `Saved “${entry.name}” to Templates`,
                     );
                     setSaved(true);
+                    setCloudTick((n) => n + 1);
                     setTimeout(() => setSaved(false), 1800);
                   } catch (e) {
                     setToast(

@@ -27,6 +27,22 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Each account's workspace (layout + rows + templates), so the same login on
+    // another computer opens the same dashboard. Only the owner can read or write.
+    match /dashboards/{uid} {
+      function activeSelf() {
+        return signedIn()
+               && request.auth.uid == uid
+               && get(/databases/$(database)/documents/users/$(uid)).data.active == true;
+      }
+      allow read: if activeSelf();
+      allow write: if activeSelf()
+                   && request.resource.data.p is string
+                   && request.resource.data.p.size() <= 900000
+                   && request.resource.data.u is int
+                   && request.resource.data.keys().hasOnly(['p', 'u']);
+    }
+
     // Team accounts. The password lives in Firebase Authentication; this record
     // only holds the profile and the approval flag.
     //
