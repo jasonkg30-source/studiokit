@@ -18,7 +18,9 @@ import {
   GripVertical,
   Sheet,
   LayoutTemplate,
+  List,
   Lock,
+  Hash,
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
@@ -34,10 +36,10 @@ import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
-import { applyFilters } from "./filters";
+import { applyFilters, defaultFilterMode } from "./filters";
 import { matchesFocus, rowsForChart, toggleFocus, type Focus } from "./crossfilter";
 import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
-import type { Chart, DataSource, Report, Row } from "./types";
+import type { Chart, DataSource, FieldType, Report, Row } from "./types";
 
 const STORAGE_KEY = "studiokit.report.v1";
 // Rows are stored apart from the layout: they only change on import, so editing
@@ -534,9 +536,10 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   /** Fields a filter can be built on: categorical text plus numeric measures. */
   const filterFields = useMemo(() => {
-    if (!source) return [] as { name: string; kind: "text" | "number" }[];
+    if (!source) return [] as { name: string; type: FieldType; kind: "text" | "number" }[];
     return source.fields.map((f) => ({
       name: f.name,
+      type: f.type,
       kind: f.type === "number" ? ("number" as const) : ("text" as const),
     }));
   }, [source]);
@@ -719,7 +722,11 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
         <main className="canvas-wrap">
           <div className="filterbar">
             {report.filters.map((f, i) => {
-              const kind = filterFields.find((d) => d.name === f.field)?.kind ?? "text";
+              const field = filterFields.find((d) => d.name === f.field);
+              const kind = field?.kind ?? "text";
+              // Identifier numbers (SKU, PO#) open as a list; any number can be
+              // switched either way, and the choice rides along with the report.
+              const mode = f.mode ?? (field ? defaultFilterMode(field) : "values");
 
               return (
                 <div className="filter-group" key={i}>
@@ -740,7 +747,29 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                       </option>
                     ))}
                   </select>
-                  {kind === "number" ? (
+                  {kind === "number" && (
+                    <button
+                      className="filter-mode"
+                      disabled={state.locked}
+                      aria-label={mode === "range" ? "Filter by values instead" : "Filter by number range instead"}
+                      title={
+                        mode === "range"
+                          ? "Number range — switch to picking values"
+                          : "Picking values — switch to a number range"
+                      }
+                      onClick={() => {
+                        const next = [...report.filters];
+                        next[i] =
+                          mode === "range"
+                            ? { field: f.field, values: [], mode: "values" }
+                            : { field: f.field, values: [], min: "", max: "", mode: "range" };
+                        dispatch({ type: "setReport", report: { ...report, filters: next } });
+                      }}
+                    >
+                      {mode === "range" ? <List size={12} /> : <Hash size={12} />}
+                    </button>
+                  )}
+                  {mode === "range" ? (
                     <div className="filter-range">
                       <input
                         className="text-input slim num"
@@ -801,7 +830,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                 onClick={() =>
                   dispatch({
                     type: "setReport",
-                    report: { ...report, filters: [...report.filters, { field: filterFields[0].name, values: [] }] },
+                    report: {
+                      ...report,
+                      filters: [
+                        ...report.filters,
+                        { field: filterFields[0].name, values: [], mode: defaultFilterMode(filterFields[0]) },
+                      ],
+                    },
                   })
                 }
               >

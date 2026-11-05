@@ -1,5 +1,5 @@
-import { blankKey, normValue } from "./data";
-import type { Filter, Row } from "./types";
+import { blankKey, isCodeName, normValue } from "./data";
+import type { FieldType, Filter, FilterMode, Row } from "./types";
 
 /**
  * Precision used when comparing a numeric range filter.
@@ -67,6 +67,22 @@ function pack(year: number, month: number, day: number, scale: Scale): number {
 const isBlank = (v: string | number | undefined | null) => v === undefined || v === null || String(v).trim() === "";
 
 /**
+ * Which control a field gets the first time it is filtered. Numbers are ranges
+ * unless the name reads as an identifier (SKU, PO#), where a list is what
+ * people actually want.
+ */
+export function defaultFilterMode(field: { name: string; type: FieldType }): FilterMode {
+  return field.type === "number" && !isCodeName(field.name) ? "range" : "values";
+}
+
+/** The mode a filter actually runs in: an explicit choice always wins. */
+export function filterModeOf(f: Filter, field?: { name: string; type: FieldType }): FilterMode {
+  if (f.mode) return f.mode;
+  if (field) return defaultFilterMode(field);
+  return !isBlank(f.min) || !isBlank(f.max) ? "range" : "values";
+}
+
+/**
  * Applies value and numeric-range filters; `skip` lets the year-over-year pass
  * ignore the date fields.
  */
@@ -75,7 +91,10 @@ export function applyFilters(rows: Row[], filters: Filter[], skip?: (field: stri
   for (const f of filters) {
     if (skip?.(f.field)) continue;
     const hasRange = !isBlank(f.min) || !isBlank(f.max);
-    if (hasRange) {
+    // An explicit mode is honoured even when the other side still holds values,
+    // so a switched chip can never filter on a control the user cannot see.
+    if (filterModeOf(f) === "range") {
+      if (!hasRange) continue;
       const scale = scaleOf(isBlank(f.min) ? f.max : f.min, isBlank(f.max) ? f.min : f.max);
       const lo = isBlank(f.min) ? null : toScale(f.min, scale);
       const hi = isBlank(f.max) ? null : toScale(f.max, scale);

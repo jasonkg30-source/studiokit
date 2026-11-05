@@ -55,12 +55,20 @@ export interface Chart {
   compareYoY?: boolean;
 }
 
+export type FilterMode = "values" | "range";
+
 export interface Filter {
   field: string;
   values: string[];
   /** Inclusive numeric bounds; empty string or undefined means open-ended. */
   min?: string;
   max?: string;
+  /**
+   * How the chip filters. Missing means "pick from the field type": numbers get
+   * a range, everything else a value list. Stored with the report so a shared
+   * dashboard opens the same way it was built.
+   */
+  mode?: FilterMode;
 }
 
 export interface ReportPage {

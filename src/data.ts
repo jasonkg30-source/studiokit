@@ -3,11 +3,40 @@ import type { Aggregation, Chart, DataSource, Field, FieldType, Row } from "./ty
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
 
+/**
+ * Columns that name an identifier rather than a measurement. A SKU or a PO
+ * number is digits-only often enough that the numeric test below would turn it
+ * into a measure — and then "0012345" is stored as 12345 and the leading zeros
+ * are gone for good. Names win, but only when no measurement word appears.
+ */
+const CODE_NAME =
+  /(sku|upc|ean|asin|barcode|serial|lot ?(no|num|number|#)|tracking|invoice|purchase ?order|customer ?po|\bpo\b|order ?(no|num|number|id|#))/i;
+const MEASURE_NAME =
+  /(month|date|year|time|qty|quantity|units?|amount|total|price|cost|revenue|sales|count|days?|weight|rate|percent|pct|score)/i;
+const CODE_SHAPE = /^[0-9A-Za-z][0-9A-Za-z\-_/.#]*$/;
+
+/** True when the column reads as an identifier, so it must stay text. */
+export function looksLikeCode(name: string, values: (string | number)[]): boolean {
+  if (MEASURE_NAME.test(name)) return false;
+  const text = values.map((v) => String(v).trim()).filter(Boolean);
+  if (!text.length) return false;
+  // A leading zero is proof of a code: no honest quantity is written "007".
+  const hasLeadingZero = text.some((v) => /^0\d+$/.test(v));
+  if (!hasLeadingZero && !CODE_NAME.test(name)) return false;
+  return text.every((v) => CODE_SHAPE.test(v));
+}
+
+/** Field names that should open in value-list mode even when stored as numbers. */
+export function isCodeName(name: string): boolean {
+  return CODE_NAME.test(name) && !MEASURE_NAME.test(name);
+}
+
 export function inferField(name: string, values: (string | number | null)[]): Field {
   const sample = values.filter((v) => v !== null && v !== "").slice(0, 200) as (string | number)[];
   if (!sample.length) return { name, type: "string" };
   const nameHint = /date|day|month|year|time|created|updated/i.test(name);
   if (sample.every((v) => typeof v === "number" || (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))))) {
+    if (looksLikeCode(name, sample)) return { name, type: "string" };
     return { name, type: "number" };
   }
   if (sample.every((v) => typeof v === "string" && DATE_RE.test(v.trim()))) {
