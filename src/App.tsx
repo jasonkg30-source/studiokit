@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { decompressFromEncodedURIComponent } from "lz-string";
 import {
   ArrowLeft,
@@ -534,6 +534,32 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     return out;
   };
 
+  // Every name box ends up the same width as the text the picker renders plus
+  // its padding. Measured from the picker's own font with canvas: a hidden copy
+  // drifts from the real metrics on names with spaces and after a late font load.
+  const filterBar = useRef<HTMLDivElement | null>(null);
+  const [nameWidths, setNameWidths] = useState<Record<number, number>>({});
+  const filterKey = report.filters.map((f) => f.field).join("\u0001");
+  useLayoutEffect(() => {
+    const compute = () => {
+      const ctx = document.createElement("canvas").getContext("2d");
+      const bar = filterBar.current;
+      if (!ctx || !bar) return;
+      const next: Record<number, number> = {};
+      bar.querySelectorAll<HTMLSelectElement>(".filter-name .select.slim").forEach((el, i) => {
+        const cs = getComputedStyle(el);
+        ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        const label = el.options[el.selectedIndex]?.text ?? "";
+        next[i] = Math.max(88, Math.min(260, Math.ceil(ctx.measureText(label).width) + 50));
+      });
+      setNameWidths(next);
+    };
+    compute();
+    const frame = requestAnimationFrame(compute);
+    void document.fonts?.ready.then(compute).catch(() => undefined);
+    return () => cancelAnimationFrame(frame);
+  }, [filterKey, source?.id, viewMode]);
+
   /** Fields a filter can be built on: categorical text plus numeric measures. */
   const filterFields = useMemo(() => {
     if (!source) return [] as { name: string; type: FieldType; kind: "text" | "number" }[];
@@ -720,7 +746,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
         {!viewMode && <LeftPanel source={source} dispatch={dispatch} onAddField={addFieldToSelected} hasSelection={!!selected} />}
 
         <main className="canvas-wrap">
-          <div className="filterbar">
+          <div className="filterbar" ref={filterBar}>
             {report.filters.map((f, i) => {
               const field = filterFields.find((d) => d.name === f.field);
               const kind = field?.kind ?? "text";
@@ -732,7 +758,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                 <div className="filter-group" key={i}>
                   {/* The picker is sized to the name it shows, not to the longest
                       option in the list: every filter can name a different field. */}
-                  <span className="filter-name">
+                  <span className="filter-name" style={nameWidths[i] ? { width: nameWidths[i] } : undefined}>
                     <span className="filter-name-text" aria-hidden="true">
                       {f.field}
                     </span>
