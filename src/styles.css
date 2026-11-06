@@ -412,14 +412,17 @@ textarea {
   max-width: 260px;
 }
 
+/* The name is drawn here, not by the native picker: the picker's own text sits
+   on slightly different vertical metrics per platform and shifts as the string
+   gets longer, which is what kept the chips off each other's line. */
 .filter-name-text {
   display: block;
-  visibility: hidden;
   padding: 0 38px 0 12px;
   font-size: 12px;
   line-height: 28px;
-  white-space: pre;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .filter-name .select.slim {
@@ -436,7 +439,21 @@ textarea {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23808a99' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 6px center;
+  /* Interaction only: the visible name is the span behind it, so the picker must
+     not paint over it. */
+  color: transparent;
+  background-color: transparent;
   text-overflow: clip;
+}
+
+.filter-name .select.slim option {
+  color: var(--ink);
+}
+
+/* Locked or disabled, the picker stays see-through: the span carries the name. */
+.filter-group .filter-name .select.slim:disabled {
+  color: transparent;
+  background-color: transparent;
 }
 
 .filter-mode {
