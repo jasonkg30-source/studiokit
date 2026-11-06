@@ -1,6 +1,7 @@
 import { BarChart3, Database, Hash, Type as TypeIcon, Calendar, Plus } from "lucide-react";
 import type { Action } from "../store";
 import type { ChartType, DataSource } from "../types";
+import BUILD_ID from "virtual:build-id";
 
 const QUICK: { type: ChartType; label: string }[] = [
   { type: "scorecard", label: "Scorecard" },
@@ -85,6 +86,8 @@ export default function LeftPanel({ source, dispatch, onAddField, hasSelection }
 
       <div className="left-footer">
         <span>StudioKit · v1</span>
+        {/* Which build this tab is actually running — makes a stale tab obvious. */}
+        <span className="build-id" title="Build">{BUILD_ID}</span>
       </div>
     </aside>
   );

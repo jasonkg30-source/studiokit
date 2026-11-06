@@ -370,6 +370,14 @@ textarea {
   flex: 1;
 }
 
+.left-footer .build-id {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
 /* Shown when a deploy lands while a tab stays open. */
 .update-pill {
   position: fixed;
@@ -814,6 +822,8 @@ textarea {
 }
 
 .left-footer {
+  display: flex;
+  align-items: center;
   margin-top: auto;
   color: var(--faint);
   font-size: 10.5px;
