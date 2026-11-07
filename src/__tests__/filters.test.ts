@@ -47,6 +47,31 @@ describe("numeric range filters", () => {
     expect(applyFilters(rows, [range("M", "202601", "202612")])).toHaveLength(1);
   });
 
+  it("keeps month cells that overlap a day-precision range", () => {
+    const rows: Row[] = [{ M: "2025-12" }, { M: "2026-01" }, { M: "2026-02" }, { M: "2026-03" }];
+    const kept = applyFilters(rows, [range("M", "2026-01-15", "2026-02-10")]);
+    expect(kept.map((r) => r.M)).toEqual(["2026-01", "2026-02"]);
+  });
+
+  it("matches a single day picked on both ends", () => {
+    const rows: Row[] = [{ D: "2026-03-04" }, { D: "2026-03-05" }, { D: "2026-03-06" }];
+    expect(applyFilters(rows, [range("D", "2026-03-05", "2026-03-05")])).toHaveLength(1);
+  });
+
+  it("filters a whole year when one end is left empty", () => {
+    const rows: Row[] = [{ D: "2025-11-02" }, { D: "2026-05-20" }, { D: "2027-01-03" }];
+    const kept = applyFilters(rows, [{ field: "D", values: [], min: "2026-01-01" }]);
+    expect(kept).toHaveLength(2);
+    const until = applyFilters(rows, [{ field: "D", values: [], max: "2026-12-31" }]);
+    expect(until).toHaveLength(2);
+  });
+
+  it("reads timestamps and long-form dates", () => {
+    const rows: Row[] = [{ D: "2026-04-01T09:30:00Z" }, { D: "April 2, 2026" }, { D: "2026-06-01" }];
+    const kept = applyFilters(rows, [range("D", "2026-04-01", "2026-04-30")]);
+    expect(kept).toHaveLength(2);
+  });
+
   it("still handles value filters and the skip hook", () => {
     const rows: Row[] = [
       { C: "A", Amt: 100 },

@@ -66,6 +66,39 @@ function pack(year: number, month: number, day: number, scale: Scale): number {
 
 const isBlank = (v: string | number | undefined | null) => v === undefined || v === null || String(v).trim() === "";
 
+type Parts = { y: number; m?: number; d?: number };
+
+/** A bound or cell split into the precision it was actually written at. */
+export function partsOf(value: unknown): Parts | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  // Spaces only go away for the machine forms; "April 2, 2026" needs them.
+  const text = raw.replace(/[$,%]/g, "").trim().replace(/\s+/g, " ");
+  const compact = text.replace(/\s/g, "");
+  const separated = compact.match(SEPARATED);
+  if (separated) {
+    return { y: Number(separated[1]), m: Number(separated[2]), d: separated[3] ? Number(separated[3]) : undefined };
+  }
+  if (/^\d{8}$/.test(compact)) return { y: +compact.slice(0, 4), m: +compact.slice(4, 6), d: +compact.slice(6) };
+  if (/^\d{6}$/.test(compact)) return { y: +compact.slice(0, 4), m: +compact.slice(4, 6) };
+  if (/^\d{4}$/.test(compact)) return { y: +compact };
+  const parsed = Date.parse(text);
+  if (Number.isNaN(parsed)) return null;
+  const date = new Date(parsed);
+  return { y: date.getFullYear(), m: date.getMonth() + 1, d: date.getDate() };
+}
+
+const DAY = 86_400_000;
+const dayAt = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d) / DAY;
+const firstDay = (p: Parts) => dayAt(p.y, p.m ?? 1, p.d ?? 1);
+
+/**
+ * A coarse cell covers its whole period, so a `2026-01` row still matches a
+ * range of `2026-01-15 .. 2026-02-10`; the last day is inclusive.
+ */
+const lastDay = (p: Parts) =>
+  p.d ? dayAt(p.y, p.m!, p.d) : p.m ? dayAt(p.y, p.m + 1, 1) - 1 : dayAt(p.y + 1, 1, 1) - 1;
+
 /**
  * Which control a field gets the first time it is filtered. Numbers are ranges
  * unless the name reads as an identifier (SKU, PO#), where a list is what
@@ -96,6 +129,34 @@ export function applyFilters(rows: Row[], filters: Filter[], skip?: (field: stri
     if (filterModeOf(f) === "range") {
       if (!hasRange) continue;
       const scale = scaleOf(isBlank(f.min) ? f.max : f.min, isBlank(f.max) ? f.min : f.max);
+      if (scale >= 4) {
+        // Date-like bounds. Whole periods are compared, so a month cell is not
+        // thrown out just because the bound was picked on a calendar.
+        const lowParts = isBlank(f.min) ? null : partsOf(f.min);
+        const highParts = isBlank(f.max) ? null : partsOf(f.max);
+        const lo = lowParts ? firstDay(lowParts) : null;
+        const hi = highParts ? lastDay(highParts) : null;
+        const numLo = isBlank(f.min) ? null : toScale(f.min, scale);
+        const numHi = isBlank(f.max) ? null : toScale(f.max, scale);
+        out = out.filter((r) => {
+          const raw = r[f.field];
+          if (raw === null || raw === undefined || raw === "") return false;
+          const parts = partsOf(raw);
+          if (!parts) {
+            // Amounts and codes that happen to look like years fall back to the
+            // numeric comparison they used before.
+            const n = toScale(raw, scale);
+            if (Number.isNaN(n)) return false;
+            if (numLo !== null && n < numLo) return false;
+            if (numHi !== null && n > numHi) return false;
+            return true;
+          }
+          if (lo !== null && lastDay(parts) < lo) return false;
+          if (hi !== null && firstDay(parts) > hi) return false;
+          return true;
+        });
+        continue;
+      }
       const lo = isBlank(f.min) ? null : toScale(f.min, scale);
       const hi = isBlank(f.max) ? null : toScale(f.max, scale);
       out = out.filter((r) => {

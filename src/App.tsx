@@ -3,6 +3,7 @@ import { decompressFromEncodedURIComponent } from "lz-string";
 import {
   ArrowLeft,
   ArrowRight,
+  Calendar,
   ChevronDown,
   Check,
   Bookmark,
@@ -139,6 +140,9 @@ interface AppProps {
 /** Month / date style fields: the year-over-year overlay shifts these by one year. */
 const isTimeField = (field: string) =>
   /(^|[^a-z])(month|date|year|period|quarter|week)([^a-z]|$)/i.test(field);
+
+/** Name hint for calendar controls: month/period columns arrive as plain text. */
+const DATEISH_NAME = /(^|[^a-z])(month|date|year|period|day)([^a-z]|$)/i;
 
 export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
@@ -540,7 +544,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     return source.fields.map((f) => ({
       name: f.name,
       type: f.type,
-      kind: f.type === "number" ? ("number" as const) : ("text" as const),
+      kind:
+        f.type === "number" ? ("number" as const) : f.type === "date" ? ("date" as const) : ("text" as const),
     }));
   }, [source]);
 
@@ -727,6 +732,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
               // Identifier numbers (SKU, PO#) open as a list; any number can be
               // switched either way, and the choice rides along with the report.
               const mode = f.mode ?? (field ? defaultFilterMode(field) : "values");
+              // Month/period columns are often imported as plain text, so the
+              // calendar is offered on the name too, not only on a date type.
+              const dateInput = kind === "date" || (kind === "text" && DATEISH_NAME.test(f.field));
 
               return (
                 <div className="filter-group" key={i}>
@@ -754,15 +762,23 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                       ))}
                     </select>
                   </span>
-                  {kind === "number" && (
+                  {(kind === "number" || dateInput) && (
                     <button
                       className="filter-mode"
                       disabled={state.locked}
-                      aria-label={mode === "range" ? "Filter by values instead" : "Filter by number range instead"}
+                      aria-label={
+                        mode === "range"
+                          ? "Filter by values instead"
+                          : dateInput
+                            ? "Filter by date range instead"
+                            : "Filter by number range instead"
+                      }
                       title={
                         mode === "range"
-                          ? "Number range — switch to picking values"
-                          : "Picking values — switch to a number range"
+                          ? `${dateInput ? "Date" : "Number"} range — switch to picking values`
+                          : dateInput
+                            ? "Picking values — switch to a date range"
+                            : "Picking values — switch to a number range"
                       }
                       onClick={() => {
                         const next = [...report.filters];
@@ -773,16 +789,17 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                         dispatch({ type: "setReport", report: { ...report, filters: next } });
                       }}
                     >
-                      {mode === "range" ? <List size={12} /> : <Hash size={12} />}
+                      {mode === "range" ? <List size={12} /> : dateInput ? <Calendar size={12} /> : <Hash size={12} />}
                     </button>
                   )}
                   {mode === "range" ? (
                     <div className="filter-range">
                       <input
-                        className="text-input slim num"
-                        type="number"
-                        inputMode="decimal"
-                        placeholder="min"
+                        className={`text-input slim ${dateInput ? "date" : "num"}`}
+                        type={dateInput ? "date" : "number"}
+                        inputMode={dateInput ? undefined : "decimal"}
+                        placeholder={dateInput ? undefined : "min"}
+                        aria-label={dateInput ? "From date" : "Minimum"}
                         value={f.min ?? ""}
                         onChange={(e) => {
                           const next = [...report.filters];
@@ -792,10 +809,11 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                       />
                       <span className="range-dash">–</span>
                       <input
-                        className="text-input slim num"
-                        type="number"
-                        inputMode="decimal"
-                        placeholder="max"
+                        className={`text-input slim ${dateInput ? "date" : "num"}`}
+                        type={dateInput ? "date" : "number"}
+                        inputMode={dateInput ? undefined : "decimal"}
+                        placeholder={dateInput ? undefined : "max"}
+                        aria-label={dateInput ? "To date" : "Maximum"}
                         value={f.max ?? ""}
                         onChange={(e) => {
                           const next = [...report.filters];

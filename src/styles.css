@@ -1574,6 +1574,15 @@ textarea {
   gap: 4px;
 }
 
+/* A calendar needs room for mm/dd/yyyy plus the picker button. */
+.text-input.slim.date {
+  width: 132px;
+  height: 28px;
+  padding: 0 6px;
+  border-color: var(--line);
+  font-size: 12px;
+}
+
 .range-dash {
   color: var(--faint);
   font-size: 11px;
