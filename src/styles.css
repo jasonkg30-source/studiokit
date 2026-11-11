@@ -1727,7 +1727,7 @@ textarea {
   align-items: center;
   gap: 6px;
   height: 28px;
-  max-width: 200px;
+  max-width: 280px;
   padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -1766,7 +1766,13 @@ textarea {
   top: calc(100% + 6px);
   left: 0;
   z-index: 80;
-  width: 250px;
+  /* Follow the values in the list instead of a fixed panel width: a column of
+     "West"/"East" gets a tight panel, a long customer name gets room instead of
+     ellipsis. The floor keeps the search box usable; the cap keeps the panel
+     from running past the viewport on a right-edge chip. */
+  width: max-content;
+  min-width: 170px;
+  max-width: 340px;
   background: #fff;
   border: 1px solid var(--line-strong);
   border-radius: 9px;
@@ -1787,7 +1793,11 @@ textarea {
 }
 
 .ms-search input {
+  /* width: 0 keeps the placeholder from setting the panel's intrinsic width:
+     the panel must be sized by the values in the list, and the search box then
+     stretches to whatever width they produce. */
   flex: 1;
+  width: 0;
   min-width: 0;
   border: 0;
   outline: 0;
