@@ -1588,16 +1588,14 @@ textarea {
   font-size: 11px;
 }
 
-/* "(blank)" switch on a range chip: same 28px row height as every control. */
+/* "blank" switch on a range chip. No box of its own: a bordered pill read as a
+   separate, global control instead of part of this column's range. */
 .range-blank {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   height: 28px;
-  padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #fff;
+  padding: 0 2px 0 4px;
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
@@ -1605,7 +1603,7 @@ textarea {
 }
 
 .range-blank:hover {
-  border-color: var(--line-strong);
+  color: var(--text);
 }
 
 .range-blank input {

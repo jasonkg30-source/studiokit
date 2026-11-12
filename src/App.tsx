@@ -824,10 +824,12 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                           dispatch({ type: "setReport", report: { ...report, filters: next } });
                         }}
                       />
+                      {/* Blank belongs to this one column: it is part of the range
+                          control, never a global switch. */}
                       {hasBlanks && (
                         <label
                           className="range-blank"
-                          title="Also keep rows where this cell is empty"
+                          title={`Include rows where ${f.field} is empty`}
                         >
                           <input
                             type="checkbox"
@@ -838,7 +840,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                               dispatch({ type: "setReport", report: { ...report, filters: next } });
                             }}
                           />
-                          (blank)
+                          incl. blank
                         </label>
                       )}
                     </div>
