@@ -10,6 +10,14 @@ interface Props {
   placeholder?: string;
 }
 
+// Labels and search words for an empty cell, which is a real value here.
+export const BLANK_LABEL = "(blank)";
+const BLANK_WORDS = ["blank", "empty", "none", "null"];
+
+export function valueLabel(v: string): string {
+  return v === "" ? BLANK_LABEL : v;
+}
+
 const ITEM_H = 27;
 const LIST_H = 230;
 const BUFFER = 6;
@@ -52,7 +60,11 @@ export default function MultiSelect({ options: staticOptions, getOptions, select
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+    if (!q) return options;
+    // The empty value paints as "(blank)", so searching for it must match the
+    // words people type instead of an empty string that never matches.
+    const blankHit = BLANK_WORDS.some((w) => w.startsWith(q));
+    return options.filter((o) => (o === "" ? blankHit : o.toLowerCase().includes(q)));
   }, [options, query]);
 
   // Only paint the rows inside the scroll viewport, so 10k values stay smooth.
@@ -79,11 +91,16 @@ export default function MultiSelect({ options: staticOptions, getOptions, select
     onChange(Array.from(new Set([...selected, ...shown])));
   };
 
-  const label = selected.length === 0 ? placeholder : selected.length === 1 ? selected[0] : `${selected.length} selected`;
+  const label =
+    selected.length === 0
+      ? placeholder
+      : selected.length === 1
+        ? valueLabel(selected[0])
+        : `${selected.length} selected`;
 
   return (
     <div className="ms" ref={box}>
-      <button type="button" className={`ms-btn ${open ? "active" : ""}`} onClick={() => setOpen((v) => !v)} title={selected.join(", ")}>
+      <button type="button" className={`ms-btn ${open ? "active" : ""}`} onClick={() => setOpen((v) => !v)} title={selected.map(valueLabel).join(", ")}>
         <span className="ms-label">{label}</span>
         {selected.length > 1 && <span className="ms-count">{selected.length}</span>}
         <ChevronDown size={12} className="muted" />
@@ -133,7 +150,7 @@ export default function MultiSelect({ options: staticOptions, getOptions, select
                   }}
                 >
                   <span className="ms-check">{on && <Check size={10} />}</span>
-                  <span className="ms-value">{value || "(blank)"}</span>
+                  <span className={`ms-value${value === "" ? " is-blank" : ""}`}>{valueLabel(value)}</span>
                 </div>
               );
             })}

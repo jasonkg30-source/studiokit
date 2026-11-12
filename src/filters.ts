@@ -112,7 +112,8 @@ export function defaultFilterMode(field: { name: string; type: FieldType }): Fil
 export function filterModeOf(f: Filter, field?: { name: string; type: FieldType }): FilterMode {
   if (f.mode) return f.mode;
   if (field) return defaultFilterMode(field);
-  return !isBlank(f.min) || !isBlank(f.max) ? "range" : "values";
+  // A blank switch with no bounds is still the range side of the chip.
+  return !isBlank(f.min) || !isBlank(f.max) || f.blank ? "range" : "values";
 }
 
 /**
@@ -127,7 +128,13 @@ export function applyFilters(rows: Row[], filters: Filter[], skip?: (field: stri
     // An explicit mode is honoured even when the other side still holds values,
     // so a switched chip can never filter on a control the user cannot see.
     if (filterModeOf(f) === "range") {
-      if (!hasRange) continue;
+      const keepBlank = !!f.blank;
+      const isBlankCell = (raw: unknown) => String(raw ?? "").trim() === "";
+      if (!hasRange) {
+        // Only the blank switch is on: the chip means "rows with no value".
+        if (keepBlank) out = out.filter((r) => isBlankCell(r[f.field]));
+        continue;
+      }
       const scale = scaleOf(isBlank(f.min) ? f.max : f.min, isBlank(f.max) ? f.min : f.max);
       if (scale >= 4) {
         // Date-like bounds. Whole periods are compared, so a month cell is not
@@ -140,7 +147,7 @@ export function applyFilters(rows: Row[], filters: Filter[], skip?: (field: stri
         const numHi = isBlank(f.max) ? null : toScale(f.max, scale);
         out = out.filter((r) => {
           const raw = r[f.field];
-          if (raw === null || raw === undefined || raw === "") return false;
+          if (isBlankCell(raw)) return keepBlank;
           const parts = partsOf(raw);
           if (!parts) {
             // Amounts and codes that happen to look like years fall back to the
@@ -161,7 +168,7 @@ export function applyFilters(rows: Row[], filters: Filter[], skip?: (field: stri
       const hi = isBlank(f.max) ? null : toScale(f.max, scale);
       out = out.filter((r) => {
         const raw = r[f.field];
-        if (raw === null || raw === undefined || raw === "") return false;
+        if (isBlankCell(raw)) return keepBlank;
         const n = toScale(raw, scale);
         if (Number.isNaN(n)) return false;
         if (lo !== null && n < lo) return false;

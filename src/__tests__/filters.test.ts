@@ -84,6 +84,52 @@ describe("numeric range filters", () => {
   });
 });
 
+describe("blank cells", () => {
+  const rows: Row[] = [
+    { Amt: 100 },
+    { Amt: 101 },
+    { Amt: 900 },
+    ...Array.from({ length: 7 }, () => ({ Amt: "" })),
+  ];
+  const blankRows: Row[] = Array.from({ length: 7 }, () => ({ Region: "" as string }));
+
+  it("filters on blank rows when the empty value is picked", () => {
+    const all: Row[] = [{ Region: "West" }, ...blankRows];
+    expect(applyFilters(all, [{ field: "Region", values: [""] }])).toHaveLength(7);
+    // Typed as the label it paints, so a chip saved before the label existed
+    // still matches.
+    expect(applyFilters(all, [{ field: "Region", values: ["(blank)"] }])).toHaveLength(7);
+  });
+
+  it("drops blank rows from a range by default", () => {
+    expect(applyFilters(rows, [range("Amt", "100", "200")])).toHaveLength(2);
+  });
+
+  it("keeps blank rows when the range chip asks for them", () => {
+    const kept = applyFilters(rows, [{ field: "Amt", values: [], min: "100", max: "200", blank: true }]);
+    expect(kept).toHaveLength(9);
+  });
+
+  it("treats the switch alone as rows with no value", () => {
+    expect(applyFilters(rows, [{ field: "Amt", values: [], blank: true }])).toHaveLength(7);
+    expect(applyFilters(rows, [{ field: "Amt", values: [] }])).toHaveLength(10);
+  });
+
+  it("keeps blank cells in a period range when asked", () => {
+    const months: Row[] = [{ M: "2026-01" }, { M: "" }, { M: "2025-01" }];
+    expect(applyFilters(months, [range("M", "202601", "202612")])).toHaveLength(1);
+    expect(applyFilters(months, [{ field: "M", values: [], min: "202601", max: "202612", blank: true }])).toHaveLength(2);
+  });
+
+  it("ignores the blank switch on a values chip", () => {
+    const all: Row[] = [{ Region: "West" }, ...blankRows];
+    // An explicit mode wins: the switch belongs to the range control only.
+    expect(
+      applyFilters(all, [{ field: "Region", values: ["West"], blank: true, mode: "values" }]),
+    ).toHaveLength(1);
+  });
+});
+
 describe("scales", () => {
   it("derives the scale from the bounds' shape", () => {
     expect(scaleOf("202601", "202612")).toBe(6);

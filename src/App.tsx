@@ -735,6 +735,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
               // Month/period columns are often imported as plain text, so the
               // calendar is offered on the name too, not only on a date type.
               const dateInput = kind === "date" || (kind === "text" && DATEISH_NAME.test(f.field));
+              // Offer the "(blank)" switch only where the column actually has
+              // empty cells, so a fully populated range chip stays uncluttered.
+              const hasBlanks = !!source && baseOptionsFor(f.field).includes("");
 
               return (
                 <div className="filter-group" key={i}>
@@ -785,7 +788,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                         next[i] =
                           mode === "range"
                             ? { field: f.field, values: [], mode: "values" }
-                            : { field: f.field, values: [], min: "", max: "", mode: "range" };
+                            : { field: f.field, values: [], min: "", max: "", mode: "range", blank: false };
                         dispatch({ type: "setReport", report: { ...report, filters: next } });
                       }}
                     >
@@ -821,6 +824,23 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                           dispatch({ type: "setReport", report: { ...report, filters: next } });
                         }}
                       />
+                      {hasBlanks && (
+                        <label
+                          className="range-blank"
+                          title="Also keep rows where this cell is empty"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!f.blank}
+                            onChange={(e) => {
+                              const next = [...report.filters];
+                              next[i] = { ...f, blank: e.target.checked };
+                              dispatch({ type: "setReport", report: { ...report, filters: next } });
+                            }}
+                          />
+                          (blank)
+                        </label>
+                      )}
                     </div>
                   ) : (
                     <MultiSelect

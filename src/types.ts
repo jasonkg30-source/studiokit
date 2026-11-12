@@ -69,6 +69,12 @@ export interface Filter {
    * dashboard opens the same way it was built.
    */
   mode?: FilterMode;
+  /**
+   * Range chips only: also keep rows whose cell is empty. A column with a few
+   * filled cells and a long empty tail is common in exports, and without this
+   * the range control silently dropped those rows with no way to ask for them.
+   */
+  blank?: boolean;
 }
 
 export interface ReportPage {
