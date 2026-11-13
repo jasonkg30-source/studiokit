@@ -702,6 +702,22 @@ textarea {
 .data-table tr:hover td {
   background: #fafbfc;
 }
+/* Width-only row: it carries the widest text of every column so the browser's
+   auto table layout cannot re-flow when the windowed body swaps rows. The text
+   must stay in flow (visibility, not display:none) or it stops sizing the
+   columns; line-height/padding collapse it to zero height. */
+.data-table tr.col-sizer {
+  height: 0;
+}
+.data-table tr.col-sizer td {
+  height: 0;
+  padding: 0 10px;
+  border: 0;
+  line-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
 
 .data-table .num {
   text-align: right;

@@ -66,6 +66,23 @@ function SortableTable({
   const [popAt, setPopAt] = useState<{ left: number; top: number } | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
+  const [fontsReady, setFontsReady] = useState(false);
+
+  // Canvas measurement before the webfont lands uses fallback metrics and can
+  // pick a shorter string as "widest" — a 1% error re-opens the column jitter.
+  useEffect(() => {
+    let alive = true;
+    if (!document.fonts) {
+      setFontsReady(true);
+      return;
+    }
+    document.fonts.ready.then(() => {
+      if (alive) setFontsReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const dims = chart.dimensions;
 
   const valueOf = (row: ChartDatum, col: string): string | number => {
@@ -101,6 +118,63 @@ function SortableTable({
     ) : (
       <>{formatNumber(Number(row[col.slice(2)] ?? 0))}</>
     );
+
+  /** The text `cell` paints, without the JSX, for width measurement. */
+  const cellText = (row: ChartDatum, col: string): string =>
+    col.startsWith("d:")
+      ? String(row.dims?.[Number(col.slice(2))] ?? String(row.key).split(" / ")[Number(col.slice(2))] ?? "")
+      : formatNumber(Number(row[col.slice(2)] ?? 0));
+
+  /**
+   * The widest text in every column across *all* rows.
+   *
+   * `table-layout` is auto, so the browser sizes a column from the cells that
+   * are mounted at that moment. The body is windowed, so every scroll swaps the
+   * widest cell in and out and the whole grid re-flows under the pointer. This
+   * value drives one permanently mounted, invisible row: it is the only cell set
+   * that can widen a column, so widths stop moving.
+   */
+  const widest = useMemo(() => {
+    const ctx = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+    if (ctx) {
+      // Use the table's own font, not the page's: `document.body` is 13px while
+      // `.data-table` is 12px, and measuring at 13px over-sizes every column.
+      const td = document.querySelector<HTMLElement>(".data-table td");
+      const family = getComputedStyle(td ?? document.body).fontFamily || "system-ui";
+      ctx.font = `12px ${family}`;
+    }
+    // Measure against the unfiltered rows: column filters must not resize the
+    // grid either, or a chip click makes the table jump.
+    return columns.map((c) => {
+      let best = "";
+      let bestW = -1;
+      // Measuring every distinct value is exact; past this cap only strings
+      // longer than the current best are measured, so a 100k-row table with
+      // near-unique cells cannot stall the render.
+      const seen = new Map<string, number>();
+      for (const row of data) {
+        const text = cellText(row, c.col);
+        if (!text) continue;
+        let w = seen.get(text);
+        if (w === undefined) {
+          if (!ctx) {
+            if (text.length <= best.length) continue;
+            w = text.length;
+          } else if (seen.size >= 4000 && text.length <= best.length) {
+            continue;
+          } else {
+            w = ctx.measureText(text).width;
+            if (seen.size < 4000) seen.set(text, w);
+          }
+        }
+        if (w > bestW) {
+          bestW = w;
+          best = text;
+        }
+      }
+      return best;
+    });
+  }, [data, columns, fontsReady]);
 
   /** Distinct values per text column, for the header filter list. */
   const activeFilters = (skip?: string) =>
@@ -283,6 +357,16 @@ function SortableTable({
           </tr>
         </thead>
         <tbody>
+          {/* Pins every column to its widest possible text — see `widest`. The
+              body below is windowed, so without this row widths follow whichever
+              cells happen to be mounted and re-flow on every scroll. */}
+          <tr className="col-sizer" aria-hidden="true">
+            {columns.map((c, i) => (
+              <td key={c.col} className={c.numeric ? "num" : undefined}>
+                {widest[i]}
+              </td>
+            ))}
+          </tr>
           {padTop > 0 && (
             <tr aria-hidden="true">
               <td colSpan={columns.length} style={{ height: padTop, padding: 0, border: 0 }} />
