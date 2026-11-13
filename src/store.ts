@@ -297,6 +297,7 @@ export type Action =
   | { type: "selectPage"; id: string }
   | { type: "renamePage"; id: string; name: string }
   | { type: "deletePage"; id: string }
+  | { type: "duplicatePage"; id: string }
   | { type: "setDateRange"; range: Report["dateRange"] }
   | { type: "toggleView" }
   | { type: "openShared"; report: Report; source: DataSource | null }
@@ -307,7 +308,6 @@ export function currentPage(report: Report): ReportPage {
   return report.pages.find((p) => p.id === report.activePageId) || report.pages[0];
 }
 
-/** Next free "Page N", numbered after the highest existing page so tabs read in order. */
 /**
  * Filters in force on the active page. Falls back to the report-level array so
  * every board saved before per-page filters keeps behaving exactly as it did.
@@ -325,6 +325,18 @@ export function withPageFilters(report: Report, next: Filter[]): Report {
   // A report saved before pages existed has nowhere to put them: stay report-level.
   if (!page) return { ...report, filters: next };
   return { ...report, pages: pages.map((p) => (p.id === page.id ? { ...p, filters: next } : p)) };
+}
+
+/** Next free "Page N", numbered after the highest existing page so tabs read in order. */
+/** "<name> copy", then "<name> copy 2", so two copies never share a tab name. */
+export function copyPageName(pages: ReportPage[], name: string): string {
+  const used = new Set(pages.map((p) => p.name.trim().toLowerCase()));
+  // Duplicating a copy of a copy still reads "Shipments copy 2", never "copy copy".
+  const base = name.trim().replace(/\s+copy(\s+\d+)?$/i, "").trim() || name.trim();
+  if (!used.has(`${base} copy`.toLowerCase())) return `${base} copy`;
+  let n = 2;
+  while (used.has(`${base} copy ${n}`.toLowerCase())) n += 1;
+  return `${base} copy ${n}`;
 }
 
 export function nextPageName(pages: ReportPage[]): string {
@@ -451,6 +463,30 @@ export function reducer(state: UIState, action: Action): UIState {
       if (state.report.pages.length === 1) return state;
       const pages = state.report.pages.filter((p) => p.id !== action.id);
       return { ...state, report: { ...state.report, pages, activePageId: pages[0].id }, selectedChartId: null };
+    }
+    case "duplicatePage": {
+      const pages = state.report.pages ?? [];
+      const index = pages.findIndex((p) => p.id === action.id);
+      if (index < 0) return state;
+      const original = pages[index];
+      const copy: ReportPage = {
+        id: crypto.randomUUID(),
+        name: copyPageName(pages, original.name),
+        // Deep enough that editing the copy never edits the original: charts get
+        // fresh ids and their own arrays.
+        charts: original.charts.map((c) => ({
+          ...c,
+          id: crypto.randomUUID(),
+          dimensions: [...c.dimensions],
+          metrics: c.metrics.map((m) => ({ ...m })),
+          palette: [...c.palette],
+          ...(c.columnOrder ? { columnOrder: [...c.columnOrder] } : {}),
+        })),
+        filters: [...(original.filters ?? pageFilters(state.report))],
+      };
+      const next = [...pages];
+      next.splice(index + 1, 0, copy);
+      return { ...state, report: { ...state.report, pages: next, activePageId: copy.id }, selectedChartId: null };
     }
     case "setDateRange":
       return { ...state, report: { ...state.report, dateRange: action.range } };

@@ -123,12 +123,28 @@ textarea {
   align-items: center;
   gap: 2px;
   flex: 1;
+  /* Without min-width: 0 the strip refuses to shrink and pushes Save/Share off the
+     right edge as soon as duplication adds a fourth tab. */
+  min-width: 0;
+}
+
+/* Tabs scroll inside the strip, so the "+ Page" button stays put at its right end. */
+.tab-scroll {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-.pages::-webkit-scrollbar {
+.tab-scroll::-webkit-scrollbar {
   display: none;
+}
+
+/* A tab sliced by the strip's edge reads as broken text; fade it instead. */
+.tab-scroll.more {
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
 }
 
 .page-tab {
@@ -142,6 +158,16 @@ textarea {
   gap: 6px;
   white-space: nowrap;
   font-weight: 500;
+  /* Tabs keep their natural width and the strip scrolls behind a fade; shrinking
+     them to fit turned every name into "Page…". */
+  flex: 0 0 auto;
+  max-width: 200px;
+}
+
+.page-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .page-tab:hover {
@@ -176,6 +202,11 @@ textarea {
 
 .tab-x:hover {
   background: rgba(37, 99, 235, 0.15);
+}
+
+/* Duplicate sits next to delete on the active tab: same 15px hit area, no extra chrome. */
+.tab-copy {
+  margin-left: 4px;
 }
 
 .top-actions {

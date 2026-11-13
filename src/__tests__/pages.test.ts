@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyReport, nextPageName, pageFilters, reducer, withPageFilters, type UIState } from "../store";
+import { copyPageName, emptyReport, nextPageName, pageFilters, reducer, withPageFilters, type UIState } from "../store";
 import type { DataSource, Report, Row } from "../types";
 
 const source: DataSource = {
@@ -123,6 +123,57 @@ describe("per-page filters", () => {
     s = reducer(s, { type: "selectPage", id: first.id });
     expect(pageFilters(s.report)).toEqual([]);
     expect(second.filters).toEqual([]);
+  });
+});
+
+describe("duplicating a page", () => {
+  it("inserts the copy right after its original and makes it active", () => {
+    let s = stateWith(emptyReport(source));
+    s = reducer(s, { type: "addPage" });   // Page 2, active
+    const [first, second] = s.report.pages;
+    s = reducer(s, { type: "duplicatePage", id: first.id });
+    expect(s.report.pages.map((p) => p.name)).toEqual([first.name, `${first.name} copy`, second.name]);
+    expect(s.report.activePageId).toBe(s.report.pages[1].id);
+    expect(s.selectedChartId).toBeNull();
+  });
+
+  it("copies charts with fresh ids so edits stay on one page", () => {
+    let s = stateWith(emptyReport(source));
+    s = reducer(s, { type: "addChart", chartType: "scorecard" });
+    const original = s.report.pages[0].charts[0];
+    s = reducer(s, { type: "duplicatePage", id: s.report.pages[0].id });
+    const copy = s.report.pages[1].charts[0];
+    expect(copy.title).toBe(original.title);
+    expect(copy.id).not.toBe(original.id);
+    expect(copy.metrics).toEqual(original.metrics);
+    expect(copy.metrics).not.toBe(original.metrics);
+  });
+
+  it("gives the copy its own filter array", () => {
+    const start = stateWith({ ...emptyReport(source), filters: [{ field: "Customer", values: ["A"] }] });
+    const next = reducer(start, { type: "duplicatePage", id: start.report.pages[0].id });
+    const copy = next.report.pages[1];
+    expect(copy.filters).toEqual([{ field: "Customer", values: ["A"] }]);
+    copy.filters!.push({ field: "Amt", values: [] });
+    expect(next.report.pages[0].filters).toBeUndefined();
+    expect(next.report.filters).toHaveLength(1);
+  });
+
+  it("ignores an unknown page", () => {
+    const s = stateWith(emptyReport(source));
+    expect(reducer(s, { type: "duplicatePage", id: "missing" }).report.pages).toHaveLength(1);
+  });
+
+  it("numbers repeated copies", () => {
+    const pages = [{ id: "1", name: "Shipments", charts: [] }];
+    expect(copyPageName(pages, "Shipments")).toBe("Shipments copy");
+    expect(copyPageName([...pages, { id: "2", name: "Shipments copy", charts: [] }], "Shipments")).toBe(
+      "Shipments copy 2",
+    );
+    // The copy of a copy keeps incrementing instead of stacking "copy copy".
+    expect(copyPageName([...pages, { id: "2", name: "Shipments copy", charts: [] }], "Shipments copy")).toBe(
+      "Shipments copy 2",
+    );
   });
 });
 

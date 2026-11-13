@@ -22,6 +22,7 @@ import {
   List,
   Lock,
   Hash,
+  Copy,
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
@@ -165,6 +166,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const [gateError, setGateError] = useState("");
   const [gateBusy, setGateBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const activeTabRef = useRef<HTMLButtonElement | null>(null);
+  const tabScrollRef = useRef<HTMLDivElement | null>(null);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
   // Renaming a page happens right in the tab strip; the id keeps the input open
   // only for the tab being edited.
   const [editingPage, setEditingPage] = useState<string | null>(null);
@@ -203,6 +207,27 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const focusGroup = (field: string) => focuses.find((f) => f.field === field) ?? null;
   const quotaWarned = useRef(false);
   const page = currentPage(report);
+
+  // Duplicating a right-hand tab can hand focus to one scrolled out of sight.
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [page.id, report.pages.length]);
+
+  // Only fade the tab edge while the strip really overflows; otherwise the last
+  // tab would look permanently washed out.
+  useEffect(() => {
+    const el = tabScrollRef.current;
+    if (!el) return;
+    const check = () => setTabsOverflow(el.scrollWidth - el.clientWidth > 2);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    el.addEventListener("scroll", check);
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", check);
+    };
+  }, [report.pages.length, page.id, tabsOverflow]);
   // Filters belong to the page you are on; older boards use the report-level list.
   const filters = pageFilters(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
@@ -598,6 +623,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
         </div>
 
         <nav className="pages">
+          <div ref={tabScrollRef} className={`tab-scroll${tabsOverflow ? " more" : ""}`}>
           {report.pages.map((p) =>
             editingPage === p.id ? (
               <input
@@ -623,6 +649,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             ) : (
               <button
                 key={p.id}
+                ref={p.id === page.id ? activeTabRef : undefined}
                 className={`page-tab ${p.id === page.id ? "active" : ""}`}
                 title={viewMode ? p.name : `${p.name} — double-click to rename`}
                 onClick={() => dispatch({ type: "selectPage", id: p.id })}
@@ -632,7 +659,23 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                   setEditingPage(p.id);
                 }}
               >
-                {p.name}
+                <span className="page-tab-name">{p.name}</span>
+                {!viewMode && p.id === page.id && (
+                  <span
+                    className="tab-x tab-copy"
+                    role="button"
+                    aria-label="Duplicate page"
+                    title="Duplicate this page"
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch({ type: "duplicatePage", id: p.id });
+                      setToast(`Duplicated “${p.name}”`);
+                    }}
+                  >
+                    <Copy size={11} />
+                  </span>
+                )}
                 {!viewMode && report.pages.length > 1 && p.id === page.id && (
                   <span
                     className="tab-x"
@@ -650,6 +693,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
               </button>
             ),
           )}
+          </div>
           {!viewMode && (
             <button className="btn ghost page-add" title="Add a page" onClick={() => dispatch({ type: "addPage" })}>
               <Plus size={14} /> Page
