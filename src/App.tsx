@@ -3,7 +3,6 @@ import { decompressFromEncodedURIComponent } from "lz-string";
 import {
   ArrowLeft,
   ArrowRight,
-  Calendar,
   ChevronDown,
   Check,
   Bookmark,
@@ -14,21 +13,19 @@ import {
   Plus,
   Share2,
   Trash2,
+  Filter as FilterIcon,
   X,
   Pencil,
   GripVertical,
   Sheet,
   LayoutTemplate,
-  List,
   Lock,
-  Hash,
   Copy,
 } from "lucide-react";
 import ChartRenderer from "./components/ChartRenderer";
 import DataModal from "./components/DataModal";
 import { listTemplates, replaceTemplates } from "./templates";
 import LeftPanel from "./components/LeftPanel";
-import MultiSelect from "./components/MultiSelect";
 import TemplateModal from "./components/TemplateModal";
 import { saveTemplate, type SavedTemplate } from "./templates";
 import { QuotaError, idbDelete, idbGet, idbSet, readJSON, removeKey, writeJSON } from "./storage";
@@ -38,10 +35,11 @@ import PasswordGate from "./components/PasswordGate";
 import RightPanel from "./components/RightPanel";
 import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
-import { applyFilters, defaultFilterMode } from "./filters";
-import { matchesFocus, rowsForChart, toggleFocus, type Focus } from "./crossfilter";
+import { applyFilters } from "./filters";
+import { matchesFocus, rowsForChartWithBase, toggleFocus, type Focus } from "./crossfilter";
 import { currentPage, emptyReport, orderReport, pageFilters, reducer, withPageFilters, type UIState } from "./store";
-import type { Chart, DataSource, FieldType, Report, Row } from "./types";
+import type { Chart, DataSource, FieldType, Filter, Report, Row } from "./types";
+import { FilterChips } from "./components/FilterChips";
 
 const STORAGE_KEY = "studiokit.report.v1";
 // Rows are stored apart from the layout: they only change on import, so editing
@@ -59,7 +57,13 @@ function clearAllFilters(report: Report): Report {
   return {
     ...report,
     filters: [],
-    pages: (report.pages ?? []).map((p) => (p.filters ? { ...p, filters: [] } : p)),
+    pages: (report.pages ?? []).map((p) => ({
+      ...p,
+      ...(p.filters ? { filters: [] } : {}),
+      // A card's own filters point at columns the new file may not have; keep
+      // the card's mode, drop the chips, exactly like the page bar.
+      charts: p.charts.map((c) => (c.filters?.length ? { ...c, filters: [] } : c)),
+    })),
   };
 }
 
@@ -155,7 +159,6 @@ const isTimeField = (field: string) =>
   /(^|[^a-z])(month|date|year|period|quarter|week)([^a-z]|$)/i.test(field);
 
 /** Name hint for calendar controls: month/period columns arrive as plain text. */
-const DATEISH_NAME = /(^|[^a-z])(month|date|year|period|day)([^a-z]|$)/i;
 
 export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
@@ -173,6 +176,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   // only for the tab being edited.
   const [editingPage, setEditingPage] = useState<string | null>(null);
   const [pageDraft, setPageDraft] = useState("");
+  /** Card whose per-card filter editor is open. */
+  const [filterChartId, setFilterChartId] = useState<string | null>(null);
 
   const commitRename = (id: string, current: string) => {
     const name = (editingPage === id ? pageDraft : "").trim().slice(0, 40);
@@ -481,11 +486,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
     return () => window.clearTimeout(id);
   }, [toast]);
 
-  const filteredRows = useMemo(() => {
-    if (!source) return [];
-    const base = report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows;
-    return applyFilters(base, filters);
-  }, [source, report.dateField, report.dateRange, filters]);
+  /** Source rows inside the header date window, before any filter chip. */
+  const baseRows = useMemo(
+    () => (source ? (report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows) : []),
+    [source, report.dateField, report.dateRange],
+  );
+
+  const filteredRows = useMemo(() => applyFilters(baseRows, filters), [baseRows, filters]);
 
   /**
    * Rows for the year-over-year overlay: every filter still applies except the
@@ -509,10 +516,10 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const rowsByChart = useMemo(() => {
     const map = new Map<string, Row[]>();
     for (const chart of page.charts) {
-      map.set(chart.id, rowsForChart(filteredRows, focuses, chart));
+      map.set(chart.id, rowsForChartWithBase(baseRows, filteredRows, focuses, chart));
     }
     return map;
-  }, [page.charts, focuses, filteredRows]);
+  }, [page.charts, focuses, baseRows, filteredRows]);
 
   const visibleRows = useMemo(() => {
     let rows = filteredRows;
@@ -524,10 +531,6 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   // Distinct values are computed once per field, then narrowed by the other
   // filters. Without this a 50k-value column re-sorted on every click.
-  const baseRows = useMemo(
-    () => (source ? (report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows) : []),
-    [source, report.dateField, report.dateRange],
-  );
   const baseCache = useRef<{ rows: Row[]; map: Map<string, string[]> }>({ rows: [], map: new Map() });
   const optionCache = useRef<Map<string, string[]>>(new Map());
 
@@ -574,6 +577,22 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
     if (cache.size > 40) cache.clear();
     cache.set(sig, out);
+    return out;
+  };
+
+  /** Same narrowing as `optionsFor`, but for a card's own filter list. */
+  const optionsWithin = (list: Filter[]) => (field: string, selected: string[]): string[] => {
+    const others = list.filter(
+      (x) => x.field !== field && ((x.values?.length ?? 0) > 0 || x.min || x.max),
+    );
+    let out = baseOptionsFor(field);
+    if (others.length) {
+      const present = new Set<string>();
+      for (const r of applyFilters(baseRows, others)) present.add(normValue(String(r[field] ?? "")));
+      out = out.filter((v) => present.has(normValue(v)));
+    }
+    const missing = selected.filter((v) => !out.some((x) => normValue(x) === normValue(v)));
+    if (missing.length) out = [...out, ...missing];
     return out;
   };
 
@@ -784,167 +803,15 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
         <main className="canvas-wrap">
           <div className="filterbar">
-            {filters.map((f, i) => {
-              const field = filterFields.find((d) => d.name === f.field);
-              const kind = field?.kind ?? "text";
-              // Identifier numbers (SKU, PO#) open as a list; any number can be
-              // switched either way, and the choice rides along with the report.
-              const mode = f.mode ?? (field ? defaultFilterMode(field) : "values");
-              // Month/period columns are often imported as plain text, so the
-              // calendar is offered on the name too, not only on a date type.
-              const dateInput = kind === "date" || (kind === "text" && DATEISH_NAME.test(f.field));
-              // Offer the "(blank)" switch only where the column actually has
-              // empty cells, so a fully populated range chip stays uncluttered.
-              const hasBlanks = !!source && baseOptionsFor(f.field).includes("");
-
-              return (
-                <div className="filter-group" key={i}>
-                  {/* The picker is sized to the name it shows, not to the longest
-                      option in the list: every filter can name a different field. */}
-                  <span className="filter-name">
-                    <span className="filter-name-text" aria-hidden="true">
-                      {f.field}
-                    </span>
-                    <select
-                      className="select slim"
-                      value={f.field}
-                      disabled={state.locked}
-                      title={state.locked ? "Filters are fixed on a shared dashboard" : f.field}
-                      onChange={(e) => {
-                        const next = [...filters];
-                        next[i] = { field: e.target.value, values: [] };
-                        dispatch({ type: "setReport", report: withPageFilters(report, next) });
-                      }}
-                    >
-                      {filterFields.map((d) => (
-                        <option key={d.name} value={d.name}>
-                          {d.name}
-                        </option>
-                      ))}
-                    </select>
-                  </span>
-                  {(kind === "number" || dateInput) && (
-                    <button
-                      className="filter-mode"
-                      disabled={state.locked}
-                      aria-label={
-                        mode === "range"
-                          ? "Filter by values instead"
-                          : dateInput
-                            ? "Filter by date range instead"
-                            : "Filter by number range instead"
-                      }
-                      title={
-                        mode === "range"
-                          ? `${dateInput ? "Date" : "Number"} range — switch to picking values`
-                          : dateInput
-                            ? "Picking values — switch to a date range"
-                            : "Picking values — switch to a number range"
-                      }
-                      onClick={() => {
-                        const next = [...filters];
-                        next[i] =
-                          mode === "range"
-                            ? { field: f.field, values: [], mode: "values" }
-                            : { field: f.field, values: [], min: "", max: "", mode: "range", blank: false };
-                        dispatch({ type: "setReport", report: withPageFilters(report, next) });
-                      }}
-                    >
-                      {mode === "range" ? <List size={12} /> : dateInput ? <Calendar size={12} /> : <Hash size={12} />}
-                    </button>
-                  )}
-                  {mode === "range" ? (
-                    <div className="filter-range">
-                      <input
-                        className={`text-input slim ${dateInput ? "date" : "num"}`}
-                        type={dateInput ? "date" : "number"}
-                        inputMode={dateInput ? undefined : "decimal"}
-                        placeholder={dateInput ? undefined : "min"}
-                        aria-label={dateInput ? "From date" : "Minimum"}
-                        value={f.min ?? ""}
-                        onChange={(e) => {
-                          const next = [...filters];
-                          next[i] = { ...f, min: e.target.value };
-                          dispatch({ type: "setReport", report: withPageFilters(report, next) });
-                        }}
-                      />
-                      <span className="range-dash">–</span>
-                      <input
-                        className={`text-input slim ${dateInput ? "date" : "num"}`}
-                        type={dateInput ? "date" : "number"}
-                        inputMode={dateInput ? undefined : "decimal"}
-                        placeholder={dateInput ? undefined : "max"}
-                        aria-label={dateInput ? "To date" : "Maximum"}
-                        value={f.max ?? ""}
-                        onChange={(e) => {
-                          const next = [...filters];
-                          next[i] = { ...f, max: e.target.value };
-                          dispatch({ type: "setReport", report: withPageFilters(report, next) });
-                        }}
-                      />
-                      {/* Blank belongs to this one column: it is part of the range
-                          control, never a global switch. */}
-                      {hasBlanks && (
-                        <label
-                          className="range-blank"
-                          title={`Include rows where ${f.field} is empty`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={!!f.blank}
-                            onChange={(e) => {
-                              const next = [...filters];
-                              next[i] = { ...f, blank: e.target.checked };
-                              dispatch({ type: "setReport", report: withPageFilters(report, next) });
-                            }}
-                          />
-                          incl. blank
-                        </label>
-                      )}
-                    </div>
-                  ) : (
-                    <MultiSelect
-                      getOptions={() => optionsFor(f.field, f.values)}
-                      selected={f.values}
-                      placeholder="All"
-                      onChange={(nextValues) => {
-                        const next = [...filters];
-                        next[i] = { ...f, values: nextValues };
-                        dispatch({ type: "setReport", report: withPageFilters(report, next) });
-                      }}
-                    />
-                  )}
-                  {!state.locked && (
-                    <button
-                      className="icon-btn"
-                      title="Remove filter"
-                      onClick={() =>
-                        dispatch({ type: "setReport", report: withPageFilters(report, filters.filter((_, idx) => idx !== i)) })
-                      }
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-
-            {!viewMode && !state.locked && filterFields.length > 0 && (
-              <button
-                className="btn ghost slim"
-                onClick={() =>
-                  dispatch({
-                    type: "setReport",
-                    report: withPageFilters(report, [
-                      ...filters,
-                      { field: filterFields[0].name, values: [], mode: defaultFilterMode(filterFields[0]) },
-                    ]),
-                  })
-                }
-              >
-                <Plus size={12} /> Filter
-              </button>
-            )}
+            <FilterChips
+              filters={filters}
+              fields={filterFields}
+              optionsFor={optionsFor}
+              hasBlanks={(field) => !!source && baseOptionsFor(field).includes("")}
+              onChange={(next) => dispatch({ type: "setReport", report: withPageFilters(report, next) })}
+              disabled={state.locked}
+              allowAdd={!viewMode && !state.locked}
+            />
 
             <div className="filter-spacer" />
             {focuses.map((group) => (
@@ -1020,6 +887,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                     pickValue(field, value === "(blank)" ? "" : value, additive, c.id);
                   }}
                   onPatch={(patch) => dispatch({ type: "updateChart", id: c.id, patch })}
+                  onFilters={() => setFilterChartId(c.id)}
                   selected={c.id === selectedChartId}
                   viewMode={viewMode}
                   onSelect={() => dispatch({ type: "selectChart", id: c.id })}
@@ -1175,6 +1043,73 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           }}
         />
       )}
+      {(() => {
+        const chart = filterChartId ? page.charts.find((c) => c.id === filterChartId) : null;
+        if (!chart) return null;
+        const own = chart.filterMode === "own";
+        const cardFilters = chart.filters ?? [];
+        return (
+          <div className="modal-backdrop" onClick={() => setFilterChartId(null)}>
+            <div className="modal small" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h2>Filters · {chart.title}</h2>
+                <button className="icon-btn" title="Close" onClick={() => setFilterChartId(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="seg-row">
+                <button
+                  className={`btn slim ${own ? "ghost" : "primary"}`}
+                  onClick={() => dispatch({ type: "updateChart", id: chart.id, patch: { filterMode: "inherit" } })}
+                >
+                  Page filters
+                </button>
+                <button
+                  className={`btn slim ${own ? "primary" : "ghost"}`}
+                  onClick={() =>
+                    dispatch({
+                      type: "updateChart",
+                      id: chart.id,
+                      patch: { filterMode: "own", filters: chart.filters ?? [] },
+                    })
+                  }
+                >
+                  Own filters
+                </button>
+              </div>
+              {own ? (
+                <>
+                  <div className="filterbar modal-filters">
+                    <FilterChips
+                      filters={cardFilters}
+                      fields={filterFields}
+                      optionsFor={optionsWithin(cardFilters)}
+                      hasBlanks={(field) => !!source && baseOptionsFor(field).includes("")}
+                      onChange={(next) => dispatch({ type: "updateChart", id: chart.id, patch: { filters: next } })}
+                      allowAdd
+                    />
+                  </div>
+                  <p className="hint">
+                    The filter chips above the grid skip this card. Clicks from other charts still apply, so the
+                    drill-down keeps working.
+                  </p>
+                </>
+              ) : (
+                <p className="hint pad">
+                  This card follows the filter chips above the grid. Switch to “Own filters” to give it its own
+                  conditions — this is how three scorecards can show three different periods side by side.
+                </p>
+              )}
+              <div className="modal-foot">
+                <button className="btn primary" onClick={() => setFilterChartId(null)}>
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {state.showShare && (
         <ShareModal
           report={report}
@@ -1229,6 +1164,7 @@ interface CardProps {
   onMove: (dir: -1 | 1) => void;
   canMoveLeft: boolean;
   canMoveRight: boolean;
+  onFilters: () => void;
 }
 
 const ChartCard = memo(function ChartCard({
@@ -1248,6 +1184,7 @@ const ChartCard = memo(function ChartCard({
   canMoveLeft,
   canMoveRight,
   allRows,
+  onFilters,
 }: CardProps) {
   const [over, setOver] = useState(false);
   const [draft, setDraft] = useState<{ w: number; h: number } | null>(null);
@@ -1370,6 +1307,37 @@ const ChartCard = memo(function ChartCard({
           <Pencil size={12} className="card-edit-icon" />
           <h3>{chart.title}</h3>
         </div>
+        {!viewMode && (
+          <button
+            className={`icon-btn card-filter ${chart.filterMode === "own" ? "on" : ""}`}
+            title={
+              chart.filterMode === "own"
+                ? `Own filters (${chart.filters?.length ?? 0}) — click to edit`
+                : "Give this card its own filters"
+            }
+            aria-label="Card filters"
+            onClick={(e) => {
+              e.stopPropagation();
+              onFilters();
+            }}
+          >
+            <FilterIcon size={13} />
+            {chart.filterMode === "own" && (chart.filters?.length ?? 0) > 0 && (
+              <span className="card-filter-count">{chart.filters!.length}</span>
+            )}
+          </button>
+        )}
+        {/* Read-only shares keep the badge: the numbers differ because the card
+            owns its filters, and the reader has to be able to see that. */}
+        {viewMode && chart.filterMode === "own" && (
+          <span
+            className="card-filter on static"
+            title={`Own filters${chart.filters?.length ? `: ${chart.filters.map((f) => f.field).join(", ")}` : ""}`}
+          >
+            <FilterIcon size={13} />
+            {(chart.filters?.length ?? 0) > 0 && <span className="card-filter-count">{chart.filters!.length}</span>}
+          </span>
+        )}
         {!viewMode && (
           <div className="card-move">
             <button

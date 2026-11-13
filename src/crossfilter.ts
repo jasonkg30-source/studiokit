@@ -1,4 +1,5 @@
 import { blankKey } from "./data";
+import { applyFilters } from "./filters";
 import type { Chart, Row } from "./types";
 
 /**
@@ -56,4 +57,22 @@ export function toggleFocus(
     : [...current.values, value];
   if (!values.length) return prev.filter((_, i) => i !== index);
   return prev.map((f, i) => (i === index ? { field, values, from } : f));
+}
+
+/**
+ * Rows a chart draws when it may own its filter chips.
+ *
+ * A card set to `own` drops the page chips but keeps the header date window and
+ * every cross-filter pick: "this month" as a card filter must not also silence
+ * the drill-down the user just clicked. Charts on `inherit` are untouched, so a
+ * board saved before per-card filters behaves exactly as it did.
+ */
+export function rowsForChartWithBase(
+  base: Row[],
+  pageRows: Row[],
+  focuses: Focus[],
+  chart: Pick<Chart, "id" | "filterMode" | "filters">,
+): Row[] {
+  const rows = chart.filterMode === "own" ? applyFilters(base, chart.filters ?? []) : pageRows;
+  return rowsForChart(rows, focuses, chart);
 }

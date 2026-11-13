@@ -53,6 +53,15 @@ export interface Chart {
   columnOrder?: string[];
   /** Overlay the same months of the previous year using rows from before the filters. */
   compareYoY?: boolean;
+  /**
+   * Where this chart gets its rows. `inherit` (the default, and every board
+   * saved before this existed) uses the page's filter chips; `own` ignores them
+   * and applies `filters` instead. Cross-filter picks still apply either way, so
+   * clicking a bar keeps drilling into every chart.
+   */
+  filterMode?: "inherit" | "own";
+  /** Filters used when `filterMode === "own"`; ignored otherwise. */
+  filters?: Filter[];
 }
 
 export type FilterMode = "values" | "range";

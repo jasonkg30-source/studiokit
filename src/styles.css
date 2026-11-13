@@ -620,6 +620,59 @@ textarea {
   opacity: 1;
 }
 
+/* Per-card filters: a quiet icon until the card owns its own filters, then a
+   coloured icon with a count, so a card that ignores the page chips is obvious. */
+.card-filter {
+  position: relative;
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.card-filter:hover {
+  color: var(--muted);
+}
+
+.card-filter.on {
+  color: var(--accent);
+}
+
+.card-filter.static {
+  display: inline-flex;
+  align-items: center;
+  cursor: default;
+}
+
+.card-filter-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 13px;
+  text-align: center;
+}
+
+/* Mode switch inside the card filter dialog. */
+.seg-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+/* The same chips as the page bar, without its bar chrome. */
+.modal-filters {
+  background: transparent;
+  border-bottom: 0;
+  min-height: 0;
+  padding: 2px 0 10px;
+}
+
 .card-body {
   flex: 1;
   min-height: 0;
