@@ -39,7 +39,7 @@ import ShareModal from "./components/ShareModal";
 import { adaptToOrderSchema, dateWindow, orderTrackerSource, sampleDataSource, normValue} from "./data";
 import { applyFilters, defaultFilterMode } from "./filters";
 import { matchesFocus, rowsForChart, toggleFocus, type Focus } from "./crossfilter";
-import { currentPage, emptyReport, orderReport, reducer, type UIState } from "./store";
+import { currentPage, emptyReport, orderReport, pageFilters, reducer, withPageFilters, type UIState } from "./store";
 import type { Chart, DataSource, FieldType, Report, Row } from "./types";
 
 const STORAGE_KEY = "studiokit.report.v1";
@@ -49,6 +49,18 @@ const SOURCE_KEY = "studiokit.source.v1";
 
 /** While the URL points at a share, the browser's own dashboard must not be touched. */
 const isShareHash = () => /^#(s|r)=/.test(window.location.hash);
+
+/**
+ * Drop every filter — the report-level list plus each page's own — when the data
+ * underneath is replaced and the field names may no longer exist.
+ */
+function clearAllFilters(report: Report): Report {
+  return {
+    ...report,
+    filters: [],
+    pages: (report.pages ?? []).map((p) => (p.filters ? { ...p, filters: [] } : p)),
+  };
+}
 
 interface Persisted {
   report: Report;
@@ -191,6 +203,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const focusGroup = (field: string) => focuses.find((f) => f.field === field) ?? null;
   const quotaWarned = useRef(false);
   const page = currentPage(report);
+  // Filters belong to the page you are on; older boards use the report-level list.
+  const filters = pageFilters(report);
   const selected = page.charts.find((c) => c.id === selectedChartId) ?? null;
 
   useEffect(() => {
@@ -445,8 +459,8 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   const filteredRows = useMemo(() => {
     if (!source) return [];
     const base = report.dateField ? dateWindow(source.rows, report.dateField, report.dateRange) : source.rows;
-    return applyFilters(base, report.filters);
-  }, [source, report.dateField, report.dateRange, report.filters]);
+    return applyFilters(base, filters);
+  }, [source, report.dateField, report.dateRange, filters]);
 
   /**
    * Rows for the year-over-year overlay: every filter still applies except the
@@ -454,13 +468,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
    */
   const yoyRows = useMemo(() => {
     if (!source) return [];
-    let rows = applyFilters(source.rows, report.filters, isTimeField);
+    let rows = applyFilters(source.rows, filters, isTimeField);
     for (const f of focuses) {
       if (isTimeField(f.field)) continue;
       rows = rows.filter((r) => matchesFocus(r, f));
     }
     return rows;
-  }, [source, report.filters, focuses]);
+  }, [source, filters, focuses]);
 
   // A new dataset invalidates any slice selection made against the old one.
   useEffect(() => {
@@ -512,7 +526,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
   const optionsFor = (field: string, selected: string[]): string[] => {
     // Only the *other* filters matter, so picking a value here keeps this list stable.
-    const others = report.filters.filter(
+    const others = filters.filter(
       (x) => x.field !== field && ((x.values?.length ?? 0) > 0 || x.min || x.max),
     );
     const sig = `${field}\u0000${others
@@ -726,7 +740,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
 
         <main className="canvas-wrap">
           <div className="filterbar">
-            {report.filters.map((f, i) => {
+            {filters.map((f, i) => {
               const field = filterFields.find((d) => d.name === f.field);
               const kind = field?.kind ?? "text";
               // Identifier numbers (SKU, PO#) open as a list; any number can be
@@ -753,9 +767,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                       disabled={state.locked}
                       title={state.locked ? "Filters are fixed on a shared dashboard" : f.field}
                       onChange={(e) => {
-                        const next = [...report.filters];
+                        const next = [...filters];
                         next[i] = { field: e.target.value, values: [] };
-                        dispatch({ type: "setReport", report: { ...report, filters: next } });
+                        dispatch({ type: "setReport", report: withPageFilters(report, next) });
                       }}
                     >
                       {filterFields.map((d) => (
@@ -784,12 +798,12 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                             : "Picking values — switch to a number range"
                       }
                       onClick={() => {
-                        const next = [...report.filters];
+                        const next = [...filters];
                         next[i] =
                           mode === "range"
                             ? { field: f.field, values: [], mode: "values" }
                             : { field: f.field, values: [], min: "", max: "", mode: "range", blank: false };
-                        dispatch({ type: "setReport", report: { ...report, filters: next } });
+                        dispatch({ type: "setReport", report: withPageFilters(report, next) });
                       }}
                     >
                       {mode === "range" ? <List size={12} /> : dateInput ? <Calendar size={12} /> : <Hash size={12} />}
@@ -805,9 +819,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                         aria-label={dateInput ? "From date" : "Minimum"}
                         value={f.min ?? ""}
                         onChange={(e) => {
-                          const next = [...report.filters];
+                          const next = [...filters];
                           next[i] = { ...f, min: e.target.value };
-                          dispatch({ type: "setReport", report: { ...report, filters: next } });
+                          dispatch({ type: "setReport", report: withPageFilters(report, next) });
                         }}
                       />
                       <span className="range-dash">–</span>
@@ -819,9 +833,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                         aria-label={dateInput ? "To date" : "Maximum"}
                         value={f.max ?? ""}
                         onChange={(e) => {
-                          const next = [...report.filters];
+                          const next = [...filters];
                           next[i] = { ...f, max: e.target.value };
-                          dispatch({ type: "setReport", report: { ...report, filters: next } });
+                          dispatch({ type: "setReport", report: withPageFilters(report, next) });
                         }}
                       />
                       {/* Blank belongs to this one column: it is part of the range
@@ -835,9 +849,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                             type="checkbox"
                             checked={!!f.blank}
                             onChange={(e) => {
-                              const next = [...report.filters];
+                              const next = [...filters];
                               next[i] = { ...f, blank: e.target.checked };
-                              dispatch({ type: "setReport", report: { ...report, filters: next } });
+                              dispatch({ type: "setReport", report: withPageFilters(report, next) });
                             }}
                           />
                           incl. blank
@@ -850,9 +864,9 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                       selected={f.values}
                       placeholder="All"
                       onChange={(nextValues) => {
-                        const next = [...report.filters];
+                        const next = [...filters];
                         next[i] = { ...f, values: nextValues };
-                        dispatch({ type: "setReport", report: { ...report, filters: next } });
+                        dispatch({ type: "setReport", report: withPageFilters(report, next) });
                       }}
                     />
                   )}
@@ -861,7 +875,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                       className="icon-btn"
                       title="Remove filter"
                       onClick={() =>
-                        dispatch({ type: "setReport", report: { ...report, filters: report.filters.filter((_, idx) => idx !== i) } })
+                        dispatch({ type: "setReport", report: withPageFilters(report, filters.filter((_, idx) => idx !== i)) })
                       }
                     >
                       <X size={12} />
@@ -877,13 +891,10 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                 onClick={() =>
                   dispatch({
                     type: "setReport",
-                    report: {
-                      ...report,
-                      filters: [
-                        ...report.filters,
-                        { field: filterFields[0].name, values: [], mode: defaultFilterMode(filterFields[0]) },
-                      ],
-                    },
+                    report: withPageFilters(report, [
+                      ...filters,
+                      { field: filterFields[0].name, values: [], mode: defaultFilterMode(filterFields[0]) },
+                    ]),
                   })
                 }
               >
@@ -1038,6 +1049,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
               const pages = saved.report.pages.map((page) => ({
                 ...page,
                 charts: page.charts.filter((c) => usedBy(c).every((name) => names.has(name))),
+                ...(page.filters ? { filters: page.filters.filter((f) => names.has(f.field)) } : {}),
               }));
               const kept = pages.reduce((n, page) => n + page.charts.length, 0);
               if (!kept) {
@@ -1071,7 +1083,15 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                   ...report,
                   sourceId: src.id,
                   dateField: src.fields.find((f) => f.type === "date")?.name ?? null,
-                  filters: report.filters.filter((f) => names.has(f.field) && (f.values?.length || f.min || f.max)),
+                  filters: filters.filter((f) => names.has(f.field) && (f.values?.length || f.min || f.max)),
+                  pages: report.pages.map((p) => ({
+                    ...p,
+                    ...(p.id === page.id
+                      ? { filters: filters.filter((f) => names.has(f.field) && (f.values?.length || f.min || f.max)) }
+                      : p.filters
+                        ? { filters: p.filters.filter((f) => names.has(f.field) && (f.values?.length || f.min || f.max)) }
+                        : {}),
+                  })),
                 },
               });
               return null;
@@ -1085,7 +1105,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             if (template === "order") {
               const hasCharts = report.pages.some((p) => p.charts.length > 0);
               if (hasCharts) {
-                dispatch({ type: "setSource", source: src, report: { ...report, sourceId: src.id, filters: [] } });
+                dispatch({ type: "setSource", source: src, report: clearAllFilters({ ...report, sourceId: src.id }) });
               } else {
                 dispatch({ type: "setSource", source: src, report: { ...emptyReport(src), title: src.name } });
               }
@@ -1094,7 +1114,15 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             }
             const hasCharts = report.pages.some((p) => p.charts.length > 0);
             if (hasCharts) {
-              dispatch({ type: "setSource", source: src, report: { ...report, sourceId: src.id, dateField: src.fields.find((f) => f.type === "date")?.name ?? null, filters: [] } });
+              dispatch({
+                type: "setSource",
+                source: src,
+                report: clearAllFilters({
+                  ...report,
+                  sourceId: src.id,
+                  dateField: src.fields.find((f) => f.type === "date")?.name ?? null,
+                }),
+              });
             } else {
               const fresh = emptyReport(src);
               dispatch({ type: "setSource", source: src, report: { ...fresh, title: report.title } });

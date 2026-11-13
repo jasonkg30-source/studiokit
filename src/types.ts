@@ -81,6 +81,11 @@ export interface ReportPage {
   id: string;
   name: string;
   charts: Chart[];
+  /**
+   * Filters for this page only. Boards saved before per-page filters have none,
+   * so they fall back to `Report.filters` until someone edits the bar here.
+   */
+  filters?: Filter[];
 }
 
 export interface Report {

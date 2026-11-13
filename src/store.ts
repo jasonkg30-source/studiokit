@@ -1,5 +1,5 @@
 import { useReducer, type Dispatch } from "react";
-import type { Chart, ChartType, DataSource, Report, ReportPage } from "./types";
+import type { Chart, ChartType, DataSource, Filter, Report, ReportPage } from "./types";
 
 export const PALETTE = ["#2563eb", "#0ea5e9", "#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#64748b"];
 
@@ -308,6 +308,25 @@ export function currentPage(report: Report): ReportPage {
 }
 
 /** Next free "Page N", numbered after the highest existing page so tabs read in order. */
+/**
+ * Filters in force on the active page. Falls back to the report-level array so
+ * every board saved before per-page filters keeps behaving exactly as it did.
+ */
+export function pageFilters(report: Report): Filter[] {
+  const pages = report.pages ?? [];
+  const page = pages.find((p) => p.id === report.activePageId) ?? pages[0];
+  return page?.filters ?? report.filters;
+}
+
+/** Write filters onto the active page only — other pages keep their own. */
+export function withPageFilters(report: Report, next: Filter[]): Report {
+  const pages = report.pages ?? [];
+  const page = pages.find((p) => p.id === report.activePageId) ?? pages[0];
+  // A report saved before pages existed has nowhere to put them: stay report-level.
+  if (!page) return { ...report, filters: next };
+  return { ...report, pages: pages.map((p) => (p.id === page.id ? { ...p, filters: next } : p)) };
+}
+
 export function nextPageName(pages: ReportPage[]): string {
   const used = new Set(pages.map((p) => p.name.trim().toLowerCase()));
   let highest = 0;
@@ -411,7 +430,14 @@ export function reducer(state: UIState, action: Action): UIState {
     case "addPage": {
       // Older saved reports may predate pages; treat a missing array as one page.
       const pages = state.report.pages ?? [];
-      const page: ReportPage = { id: crypto.randomUUID(), name: nextPageName(pages), charts: [] };
+      // A new page starts from the filters currently on screen, then diverges:
+      // copying the array means editing one page never edits the other.
+      const page: ReportPage = {
+        id: crypto.randomUUID(),
+        name: nextPageName(pages),
+        charts: [],
+        filters: [...pageFilters(state.report)],
+      };
       return { ...state, report: { ...state.report, pages: [...pages, page], activePageId: page.id }, selectedChartId: null };
     }
     case "selectPage":
