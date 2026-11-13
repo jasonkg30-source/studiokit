@@ -13,7 +13,6 @@ import {
   Plus,
   Share2,
   Trash2,
-  Filter as FilterIcon,
   X,
   Pencil,
   GripVertical,
@@ -885,13 +884,6 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                     pickValue(field, value === "(blank)" ? "" : value, additive, c.id);
                   }}
                   onPatch={(patch) => dispatch({ type: "updateChart", id: c.id, patch })}
-                  onFilters={() => {
-                    dispatch({ type: "selectChart", id: c.id });
-                    // The editor lives at the bottom of the settings panel.
-                    requestAnimationFrame(() => {
-                      document.querySelector(".panel-filters")?.scrollIntoView({ block: "nearest" });
-                    });
-                  }}
                   selected={c.id === selectedChartId}
                   viewMode={viewMode}
                   onSelect={() => dispatch({ type: "selectChart", id: c.id })}
@@ -1110,7 +1102,6 @@ interface CardProps {
   onMove: (dir: -1 | 1) => void;
   canMoveLeft: boolean;
   canMoveRight: boolean;
-  onFilters: () => void;
 }
 
 const ChartCard = memo(function ChartCard({
@@ -1130,7 +1121,6 @@ const ChartCard = memo(function ChartCard({
   canMoveLeft,
   canMoveRight,
   allRows,
-  onFilters,
 }: CardProps) {
   const [over, setOver] = useState(false);
   const [draft, setDraft] = useState<{ w: number; h: number } | null>(null);
@@ -1253,37 +1243,6 @@ const ChartCard = memo(function ChartCard({
           <Pencil size={12} className="card-edit-icon" />
           <h3>{chart.title}</h3>
         </div>
-        {!viewMode && (
-          <button
-            className={`icon-btn card-filter ${chart.filterMode === "own" ? "on" : ""}`}
-            title={
-              chart.filterMode === "own"
-                ? `Own filters (${chart.filters?.length ?? 0}) — click to edit`
-                : "Give this card its own filters"
-            }
-            aria-label="Card filters"
-            onClick={(e) => {
-              e.stopPropagation();
-              onFilters();
-            }}
-          >
-            <FilterIcon size={13} />
-            {chart.filterMode === "own" && (chart.filters?.length ?? 0) > 0 && (
-              <span className="card-filter-count">{chart.filters!.length}</span>
-            )}
-          </button>
-        )}
-        {/* Read-only shares keep the badge: the numbers differ because the card
-            owns its filters, and the reader has to be able to see that. */}
-        {viewMode && chart.filterMode === "own" && (
-          <span
-            className="card-filter on static"
-            title={`Own filters${chart.filters?.length ? `: ${chart.filters.map((f) => f.field).join(", ")}` : ""}`}
-          >
-            <FilterIcon size={13} />
-            {(chart.filters?.length ?? 0) > 0 && <span className="card-filter-count">{chart.filters!.length}</span>}
-          </span>
-        )}
         {!viewMode && (
           <div className="card-move">
             <button
