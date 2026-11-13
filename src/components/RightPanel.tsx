@@ -1,7 +1,8 @@
 import { Copy, Maximize2, Palette, Plus, Trash2, X } from "lucide-react";
 import type { Action } from "../store";
 import { PALETTE } from "../store";
-import type { Aggregation, Chart, ChartType, DataSource } from "../types";
+import type { Aggregation, Chart, ChartType, DataSource, Filter } from "../types";
+import { FilterChips, type FilterField } from "./FilterChips";
 
 const TYPES: { type: ChartType; label: string }[] = [
   { type: "scorecard", label: "Scorecard" },
@@ -22,9 +23,14 @@ interface Props {
   chart: Chart;
   source: DataSource | null;
   dispatch: (a: Action) => void;
+  /** Same fields the page filter bar offers. */
+  filterFields: FilterField[];
+  /** Picker values, narrowed by this card's other filters. */
+  filterOptions: (list: Filter[], field: string, picked: string[]) => string[];
+  filterHasBlanks: (field: string) => boolean;
 }
 
-export default function RightPanel({ chart, source, dispatch }: Props) {
+export default function RightPanel({ chart, source, dispatch, filterFields, filterOptions, filterHasBlanks }: Props) {
   const update = (patch: Partial<Chart>) => dispatch({ type: "updateChart", id: chart.id, patch });
   const fields = source?.fields ?? [];
   // Every column can be a dimension; numeric ones just sort first among metrics.
@@ -276,6 +282,46 @@ export default function RightPanel({ chart, source, dispatch }: Props) {
             />
           </div>
         </div>
+
+        {/* Card filters sit at the end of the panel rather than in a popup: the
+            chips need room, and the panel is already where a chart is edited. */}
+        <div className="section-head panel-filters">
+          Filters
+          {chart.filterMode === "own" && (
+            <span className="section-note">{chart.filters?.length ?? 0} own</span>
+          )}
+        </div>
+        <div className="seg-row">
+          <button
+            className={`btn slim ${chart.filterMode === "own" ? "ghost" : "primary"}`}
+            onClick={() => update({ filterMode: "inherit" })}
+          >
+            Page filters
+          </button>
+          <button
+            className={`btn slim ${chart.filterMode === "own" ? "primary" : "ghost"}`}
+            onClick={() => update({ filterMode: "own", filters: chart.filters ?? [] })}
+          >
+            Own filters
+          </button>
+        </div>
+        {chart.filterMode === "own" ? (
+          <div className="panel-chips">
+            <FilterChips
+              filters={chart.filters ?? []}
+              fields={filterFields}
+              optionsFor={(field, picked) => filterOptions(chart.filters ?? [], field, picked)}
+              hasBlanks={filterHasBlanks}
+              onChange={(next) => update({ filters: next })}
+              allowAdd
+            />
+            <p className="hint tight">
+              The chips above the grid skip this card. Picks made in other charts still apply.
+            </p>
+          </div>
+        ) : (
+          <p className="hint tight">Follows the filter chips above the grid. Switch to Own filters to give this card its own conditions.</p>
+        )}
       </div>
     </aside>
   );

@@ -176,8 +176,6 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   // only for the tab being edited.
   const [editingPage, setEditingPage] = useState<string | null>(null);
   const [pageDraft, setPageDraft] = useState("");
-  /** Card whose per-card filter editor is open. */
-  const [filterChartId, setFilterChartId] = useState<string | null>(null);
 
   const commitRename = (id: string, current: string) => {
     const name = (editingPage === id ? pageDraft : "").trim().slice(0, 40);
@@ -887,7 +885,13 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
                     pickValue(field, value === "(blank)" ? "" : value, additive, c.id);
                   }}
                   onPatch={(patch) => dispatch({ type: "updateChart", id: c.id, patch })}
-                  onFilters={() => setFilterChartId(c.id)}
+                  onFilters={() => {
+                    dispatch({ type: "selectChart", id: c.id });
+                    // The editor lives at the bottom of the settings panel.
+                    requestAnimationFrame(() => {
+                      document.querySelector(".panel-filters")?.scrollIntoView({ block: "nearest" });
+                    });
+                  }}
                   selected={c.id === selectedChartId}
                   viewMode={viewMode}
                   onSelect={() => dispatch({ type: "selectChart", id: c.id })}
@@ -924,7 +928,16 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           )}
         </main>
 
-        {!viewMode && selected && <RightPanel chart={selected} source={source} dispatch={dispatch} />}
+        {!viewMode && selected && (
+          <RightPanel
+            chart={selected}
+            source={source}
+            dispatch={dispatch}
+            filterFields={filterFields}
+            filterOptions={(list, field, picked) => optionsWithin(list)(field, picked)}
+            filterHasBlanks={(field) => !!source && baseOptionsFor(field).includes("")}
+          />
+        )}
       </div>
 
       {showTemplates && (
@@ -1043,73 +1056,6 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
           }}
         />
       )}
-      {(() => {
-        const chart = filterChartId ? page.charts.find((c) => c.id === filterChartId) : null;
-        if (!chart) return null;
-        const own = chart.filterMode === "own";
-        const cardFilters = chart.filters ?? [];
-        return (
-          <div className="modal-backdrop" onClick={() => setFilterChartId(null)}>
-            <div className="modal small" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head">
-                <h2>Filters · {chart.title}</h2>
-                <button className="icon-btn" title="Close" onClick={() => setFilterChartId(null)}>
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="seg-row">
-                <button
-                  className={`btn slim ${own ? "ghost" : "primary"}`}
-                  onClick={() => dispatch({ type: "updateChart", id: chart.id, patch: { filterMode: "inherit" } })}
-                >
-                  Page filters
-                </button>
-                <button
-                  className={`btn slim ${own ? "primary" : "ghost"}`}
-                  onClick={() =>
-                    dispatch({
-                      type: "updateChart",
-                      id: chart.id,
-                      patch: { filterMode: "own", filters: chart.filters ?? [] },
-                    })
-                  }
-                >
-                  Own filters
-                </button>
-              </div>
-              {own ? (
-                <>
-                  <div className="filterbar modal-filters">
-                    <FilterChips
-                      filters={cardFilters}
-                      fields={filterFields}
-                      optionsFor={optionsWithin(cardFilters)}
-                      hasBlanks={(field) => !!source && baseOptionsFor(field).includes("")}
-                      onChange={(next) => dispatch({ type: "updateChart", id: chart.id, patch: { filters: next } })}
-                      allowAdd
-                    />
-                  </div>
-                  <p className="hint">
-                    The filter chips above the grid skip this card. Clicks from other charts still apply, so the
-                    drill-down keeps working.
-                  </p>
-                </>
-              ) : (
-                <p className="hint pad">
-                  This card follows the filter chips above the grid. Switch to “Own filters” to give it its own
-                  conditions — this is how three scorecards can show three different periods side by side.
-                </p>
-              )}
-              <div className="modal-foot">
-                <button className="btn primary" onClick={() => setFilterChartId(null)}>
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
       {state.showShare && (
         <ShareModal
           report={report}

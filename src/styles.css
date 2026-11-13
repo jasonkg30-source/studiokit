@@ -658,19 +658,58 @@ textarea {
   text-align: center;
 }
 
-/* Mode switch inside the card filter dialog. */
+/* The same chips, stacked inside the narrow settings panel. */
+.panel-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.panel-chips .filter-group {
+  width: 100%;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.panel-chips .ms {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+
+.panel-chips .ms-btn {
+  width: 100%;
+  max-width: none;
+}
+
+.panel-chips .filter-range {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+
+.panel-chips .filter-range .text-input {
+  min-width: 0;
+  width: 100%;
+}
+
+.section-note {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.hint.tight {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* Page / Own switch above the card's filter chips. */
 .seg-row {
   display: flex;
   gap: 6px;
   margin-bottom: 10px;
-}
-
-/* The same chips as the page bar, without its bar chrome. */
-.modal-filters {
-  background: transparent;
-  border-bottom: 0;
-  min-height: 0;
-  padding: 2px 0 10px;
 }
 
 .card-body {
