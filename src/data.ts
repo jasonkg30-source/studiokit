@@ -503,6 +503,29 @@ export function monthParts(key: string): { year: number; month: number } | null 
   return { year: Number(m[1]), month };
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Any date-ish cell → `YYYY-MM`, or null when it is not a date. */
+export function monthKeyOf(raw: unknown): string | null {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  const compact = monthParts(text);
+  if (compact) return `${compact.year}-${String(compact.month).padStart(2, "0")}`;
+  // YYYYMMDD is what most exports write, and Date.parse does not read it.
+  const digits = /^(\d{4})(\d{2})\d{2}$/.exec(text);
+  if (digits) return `${digits[1]}-${digits[2]}`;
+  const t = Date.parse(text);
+  if (isNaN(t)) return null;
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** `2026-01` → `Jan 2026`, for the axis and the tooltip. */
+export function monthLabel(key: unknown): string {
+  const p = monthParts(String(key ?? ""));
+  return p ? `${MONTH_NAMES[p.month - 1]} ${p.year}` : String(key ?? "");
+}
+
 /**
  * Adds a `__prev` value per datum: the same metric for the same month one year
  * earlier, computed from the unfiltered rows so a "2026 only" filter still works.
@@ -599,6 +622,12 @@ export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
         const raw = String(row[d] ?? "").trim();
         return raw === "" ? "(blank)" : raw;
       });
+      // Month bucketing happens on the label, so aggregation stays in one place:
+      // every row in January lands in the same bucket and the metric's own agg runs.
+      if (chart.timeBucket === "month") {
+        const bucketed = monthKeyOf(labels[0]);
+        if (bucketed) labels[0] = bucketed;
+      }
       key = labels.map(normValue).join("\u0000");
     }
 
@@ -649,6 +678,9 @@ export function buildSeries(rows: Row[], chart: Chart): ChartDatum[] {
     return datum;
   });
 
+  // A month axis is chronological even when the source rows are not: an unsorted
+  // CSV would otherwise draw a line that jumps back and forth in time.
+  if (chart.timeBucket === "month" && chart.sort === "none") data.sort((a, b) => a.key.localeCompare(b.key));
   if (chart.sort === "dim_asc") data.sort((a, b) => a.key.localeCompare(b.key));
   if (chart.sort === "dim_desc") data.sort((a, b) => b.key.localeCompare(a.key));
   if (chart.sort === "metric_desc" || chart.sort === "metric_asc") {

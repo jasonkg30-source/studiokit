@@ -51,6 +51,11 @@ export interface Chart {
   limit: number;
   /** User-arranged table column order, keyed as "d:<index>" (dimension) or "m:<field>" (metric). */
   columnOrder?: string[];
+  /**
+   * Timeseries bucketing. `month` folds every date in a month into one point —
+   * 1/2, 1/15 and 1/25 become a single `2026-01` with the metric summed.
+   */
+  timeBucket?: "none" | "month";
   /** Overlay the same months of the previous year using rows from before the filters. */
   compareYoY?: boolean;
   /**

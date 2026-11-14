@@ -264,6 +264,23 @@ export default function RightPanel({
           </label>
         )}
 
+        {(chart.type === "timeseries" || chart.type === "area") && chart.dimensions[0] && (
+          <label
+            className="yoy-row"
+            title="Fold every date in a month into one point — 1/2, 1/15 and 1/25 become a single January value"
+          >
+            <input
+              type="checkbox"
+              checked={chart.timeBucket === "month"}
+              onChange={(e) => update({ timeBucket: e.target.checked ? "month" : "none" })}
+            />
+            <span>
+              Group by month
+              <em>All dates in a month add up to one point.</em>
+            </span>
+          </label>
+        )}
+
         <div className="section-head">Size</div>
         <div className="two-col">
           <div>

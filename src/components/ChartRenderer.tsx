@@ -20,7 +20,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
-import { aggregateValue, blankKey, buildSeries, formatCardValue, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
+import { aggregateValue, blankKey, buildSeries, formatCardValue, formatNumber, metricLabel, monthLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
 
 interface Props {
   chart: Chart;
@@ -497,6 +497,9 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
   const data = useMemo(() => buildSeries(rows, chart), [rows, chart]);
   const metrics = chart.metrics.filter((m) => m.field);
   const colors = chart.palette?.length ? chart.palette : ["#2563eb"];
+  // Month bucket keys stay `2026-01` so they sort and compare as strings; only
+  // the axis and the tooltip spell them out.
+  const monthAxis = chart.timeBucket === "month";
 
   const yoy = useMemo(
     () => (chart.compareYoY && allRows ? withPreviousYear(data, chart, allRows) : null),
@@ -520,7 +523,9 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
     const delta = before ? Math.round(((current - before) / before) * 1000) / 10 : null;
     return (
       <div className="chart-tip">
-        <div className="chart-tip-title">{String(datum.dims?.[0] ?? datum.key)}</div>
+        <div className="chart-tip-title">
+          {monthAxis ? monthLabel(datum.dims?.[0] ?? datum.key) : String(datum.dims?.[0] ?? datum.key)}
+        </div>
         <div className="chart-tip-row">
           <span className="chart-tip-name">{metricLabel(m)}</span>
           <span className="chart-tip-value">{formatNumber(current)}</span>
@@ -597,9 +602,13 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
           {chart.type === "area" ? (
             <AreaChart data={plot} margin={{ top: 8, right: 12, bottom: 0, left: -8 }}>
               {chart.showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />}
-              <XAxis dataKey="key" {...axis} minTickGap={24} />
+              <XAxis dataKey="key" {...axis} minTickGap={24} tickFormatter={monthAxis ? monthLabel : undefined} />
               <YAxis {...axis} tickFormatter={(v) => formatNumber(Number(v))} width={52} />
-              <Tooltip {...(hasPrev ? { content: yoyTip } : tooltipStyle())} formatter={(v) => formatNumber(Number(v))} />
+              <Tooltip
+                {...(hasPrev ? { content: yoyTip } : tooltipStyle())}
+                formatter={(v) => formatNumber(Number(v))}
+                labelFormatter={monthAxis ? (label) => monthLabel(label) : undefined}
+              />
               {chart.showLegend && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
               {hasPrev && (
                 <Area
@@ -631,9 +640,13 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
           ) : (
             <LineChart data={plot} margin={{ top: 8, right: 12, bottom: 0, left: -8 }}>
               {chart.showGrid && <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />}
-              <XAxis dataKey="key" {...axis} minTickGap={24} />
+              <XAxis dataKey="key" {...axis} minTickGap={24} tickFormatter={monthAxis ? monthLabel : undefined} />
               <YAxis {...axis} tickFormatter={(v) => formatNumber(Number(v))} width={52} />
-              <Tooltip {...(hasPrev ? { content: yoyTip } : tooltipStyle())} formatter={(v) => formatNumber(Number(v))} />
+              <Tooltip
+                {...(hasPrev ? { content: yoyTip } : tooltipStyle())}
+                formatter={(v) => formatNumber(Number(v))}
+                labelFormatter={monthAxis ? (label) => monthLabel(label) : undefined}
+              />
               {chart.showLegend && <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />}
               {hasPrev && (
                 <Line
