@@ -20,7 +20,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Filter } from "lucide-react";
 import type { Chart, Row } from "../types";
-import { aggregateValue, blankKey, buildSeries, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
+import { aggregateValue, blankKey, buildSeries, formatCardValue, formatNumber, metricLabel, type ChartDatum, normValue, withPreviousYear, monthParts } from "../data";
 
 interface Props {
   chart: Chart;
@@ -562,8 +562,12 @@ export default function ChartRenderer({ chart, rows, focus, onSliceClick, onPatc
       const value = aggregateValue(rows, m.field, m.agg);
       return (
         <div className="scorecard">
-          <div className="scorecard-value" style={{ color: colors[0] }}>
-            {formatNumber(value)}
+          <div
+            className="scorecard-value"
+            style={{ color: colors[0] }}
+            title={value.toLocaleString("en-US")}
+          >
+            {formatCardValue(value)}
           </div>
           <div className="scorecard-label">
             {m.agg === "count" ? "Count" : m.agg === "count_distinct" ? `Unique · ${m.field}` : `${m.agg.toUpperCase()} · ${m.field}`}

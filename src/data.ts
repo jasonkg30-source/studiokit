@@ -680,6 +680,21 @@ export function formatNumber(n: number, compact = true): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
+/**
+ * The big number on a scorecard. One decimal so a 22.2m total keeps its shape —
+ * `formatNumber` drops to whole millions above 10m, which hides exactly the
+ * difference a KPI card exists to show. The exact figure rides in the tooltip.
+ */
+export function formatCardValue(n: number): string {
+  if (!isFinite(n)) return "–";
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "b";
+  if (abs >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "m";
+  if (abs >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+  if (Number.isInteger(n)) return n.toLocaleString("en-US");
+  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
 export function dateWindow(rows: Row[], field: string, range: string): Row[] {
   if (range === "all" || !field) return rows;
   const days = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 }[range as "7d"] ?? 0;

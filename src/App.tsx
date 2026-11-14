@@ -175,6 +175,36 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
   // only for the tab being edited.
   const [editingPage, setEditingPage] = useState<string | null>(null);
   const [pageDraft, setPageDraft] = useState("");
+  /** Settings panel width; dragged on its left edge and remembered. */
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("studiokit.panelWidth"));
+    return saved >= 240 && saved <= 640 ? saved : 286;
+  });
+  const panelWidthRef = useRef(panelWidth);
+  panelWidthRef.current = panelWidth;
+
+  const startPanelResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidthRef.current;
+    // The pointerup handler runs before React has re-rendered, so the width to
+    // save is tracked here rather than read back from the ref.
+    let latest = startW;
+    const move = (ev: PointerEvent) => {
+      // Dragging left grows the panel: it is anchored to the right edge.
+      latest = Math.min(640, Math.max(240, startW - (ev.clientX - startX)));
+      setPanelWidth(latest);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizing");
+      localStorage.setItem("studiokit.panelWidth", String(Math.round(latest)));
+    };
+    document.body.classList.add("resizing");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   const commitRename = (id: string, current: string) => {
     const name = (editingPage === id ? pageDraft : "").trim().slice(0, 40);
@@ -921,6 +951,16 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
         </main>
 
         {!viewMode && selected && (
+          <div
+            className="panel-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize chart settings"
+            title="Drag to resize"
+            onPointerDown={startPanelResize}
+          />
+        )}
+        {!viewMode && selected && (
           <RightPanel
             chart={selected}
             source={source}
@@ -928,6 +968,7 @@ export default function App({ session, onSignOut, onOpenAdmin }: AppProps = {}) 
             filterFields={filterFields}
             filterOptions={(list, field, picked) => optionsWithin(list)(field, picked)}
             filterHasBlanks={(field) => !!source && baseOptionsFor(field).includes("")}
+            width={panelWidth}
           />
         )}
       </div>

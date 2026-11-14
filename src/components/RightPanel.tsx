@@ -28,9 +28,19 @@ interface Props {
   /** Picker values, narrowed by this card's other filters. */
   filterOptions: (list: Filter[], field: string, picked: string[]) => string[];
   filterHasBlanks: (field: string) => boolean;
+  /** Panel width in px, dragged by the divider on its left edge. */
+  width: number;
 }
 
-export default function RightPanel({ chart, source, dispatch, filterFields, filterOptions, filterHasBlanks }: Props) {
+export default function RightPanel({
+  chart,
+  source,
+  dispatch,
+  filterFields,
+  filterOptions,
+  filterHasBlanks,
+  width,
+}: Props) {
   const update = (patch: Partial<Chart>) => dispatch({ type: "updateChart", id: chart.id, patch });
   const fields = source?.fields ?? [];
   // Every column can be a dimension; numeric ones just sort first among metrics.
@@ -49,7 +59,7 @@ export default function RightPanel({ chart, source, dispatch, filterFields, filt
   const canMultiDim = ["table", "hbar", "stacked", "bar"].includes(chart.type);
 
   return (
-    <aside className="right-panel">
+    <aside className="right-panel" style={{ width, flexBasis: width }}>
       <div className="panel-head">
         <span>Chart settings</span>
         <div className="panel-head-actions">
